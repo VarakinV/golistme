@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ var
   try {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (session.user.role !== 'ADMIN' && session.user.role !== 'SUPERADMIN') {
+    if (session.user.platformRole !== 'ADMIN' && session.user.platformRole !== 'SUPERADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

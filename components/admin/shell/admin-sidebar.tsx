@@ -41,7 +41,7 @@ export function AdminSidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const isSuperadmin = (session?.user as any)?.role === 'SUPERADMIN';
+  const isSuperadmin = (session?.user as any)?.platformRole === 'SUPERADMIN';
   const user = session?.user;
 
   const filterItems = (items: NavItem[]) =>
@@ -202,7 +202,7 @@ export function AdminSidebar({
           <div className={`min-w-0 ${collapsed ? 'lg:hidden' : ''}`}>
             <div className="truncate text-[12.5px] font-semibold text-[#e7eaf7]">{name}</div>
             <div className="text-[11px] text-[#8791b8]">
-              {(user as any)?.role === 'SUPERADMIN' ? 'Superadmin' : 'Admin'}
+              {(user as any)?.platformRole === 'SUPERADMIN' ? 'Superadmin' : 'Admin'}
             </div>
           </div>
           <button
