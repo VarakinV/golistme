@@ -8,7 +8,7 @@ import MortgageCalculator from '@/components/property/MortgageCalculator';
 import { formatCurrency } from '@/lib/mortgage';
 
 async function getOrder(orderId: string) {
-  return prisma.order.findUnique({
+  return prisma.listing.findUnique({
     where: { id: orderId },
     include: {
       realtor: true,

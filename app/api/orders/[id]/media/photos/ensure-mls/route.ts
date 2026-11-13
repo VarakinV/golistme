@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
 import { prisma } from '@/lib/db/prisma';
-import { uploadBufferToS3WithPath, isS3Available } from '@/lib/utils/s3';
+import { uploadBufferToS3WithPath, isS3Available, deleteFromS3 } from '@/lib/utils/s3';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +38,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       const { fileUrl } = await uploadBufferToS3WithPath(basePath, name, mls, 'image/jpeg');
 
-      await prisma.photo.update({ where: { id: p.id }, data: { urlMls: fileUrl } });
+      // The photo may have been deleted while this copy was being generated.
+      // If so, remove the orphaned object instead of leaving it in S3.
+      const result = await prisma.photo.updateMany({
+        where: { id: p.id },
+        data: { urlMls: fileUrl },
+      });
+      if (result.count === 0) {
+        await deleteFromS3(fileUrl);
+        continue;
+      }
       updated++;
     }
 

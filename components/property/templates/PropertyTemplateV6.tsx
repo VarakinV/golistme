@@ -545,7 +545,7 @@ export default function PropertyTemplateV6({
   order: any;
   baseUrl: string;
 }) {
-  const realtorName = `${order.realtor.firstName} ${order.realtor.lastName}`;
+  const realtorName = [order.realtor.firstName, order.realtor.lastName].filter(Boolean).join(' ') || order.realtor.name || 'Realtor';
   const fullUrl    = `${baseUrl}/property/${order.id}/v6`;
 
   /* ── Address ────────────────────────────────────── */
@@ -1126,15 +1126,15 @@ export default function PropertyTemplateV6({
             <div className="v6-footer-bottom">
               <p>
                 Powered by{' '}
-                <a href="https://photos4realestate.ca/" target="_blank" rel="noopener noreferrer">
-                  Photos 4 Real Estate
+                <a href="https://golist.me/" target="_blank" rel="noopener noreferrer">
+                  GoList.me
                 </a>{' '}
                 · © {new Date().getFullYear()} All Rights Reserved
               </p>
               <div style={{ display: 'flex', gap: '20px' }}>
-                <a href="https://photos4realestate.ca/terms-and-conditions/" target="_blank" rel="noopener noreferrer">Terms</a>
+                <a href="https://golist.me/terms-and-conditions/" target="_blank" rel="noopener noreferrer">Terms</a>
                 <span>·</span>
-                <a href="https://photos4realestate.ca/privacy-policy/" target="_blank" rel="noopener noreferrer">Privacy</a>
+                <a href="https://golist.me/privacy-policy/" target="_blank" rel="noopener noreferrer">Privacy</a>
               </div>
             </div>
           </div>

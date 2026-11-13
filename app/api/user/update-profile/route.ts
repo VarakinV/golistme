@@ -27,7 +27,7 @@ export async function PUT(req: NextRequest) {
       id: updated.id,
       name: updated.name,
       email: updated.email,
-      role: updated.role,
+      platformRole: updated.platformRole,
       avatarUrl: (updated as any).avatarUrl ?? null,
     });
   } catch (err) {

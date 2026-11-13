@@ -2,14 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-import { auth } from '@/lib/auth/auth';
+import { requireListingAccess, WorkspaceAccessError } from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
-import { ShotstackProvider } from '@/lib/video/shotstack-provider';
-import { J2VProvider } from '@/lib/video/j2v-provider';
 import { RemotionProvider } from '@/lib/video/remotion-provider';
 import { startRemotionBatch, buildRemotionThumbnailContext } from '@/lib/video/remotion-queue';
 import { isS3Available, uploadBufferToS3WithPath } from '@/lib/utils/s3';
-import { extractPosterFromVideoUrl, remotionPosterFrame } from '@/lib/video/poster';
+import { remotionPosterFrame } from '@/lib/video/poster';
 
 function mapStatus(s?: string): 'QUEUED' | 'RENDERING' | 'COMPLETE' | 'FAILED' {
   const v = (s || '').toLowerCase();
@@ -21,20 +19,8 @@ function mapStatus(s?: string): 'QUEUED' | 'RENDERING' | 'COMPLETE' | 'FAILED' {
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
-
-    // Permission: admin/superadmin or owning realtor
-    const order = await prisma.order.findUnique({ where: { id }, select: { realtorId: true } });
-    if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
+    await requireListingAccess(id);
 
     const active = await prisma.orderReel.findMany({
       where: { orderId: id, status: { in: ['QUEUED', 'RENDERING'] } },
@@ -51,11 +37,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       active.map(async (reel) => {
         try {
           if (!reel.renderId || reel.renderId === 'pending') return { id: reel.id, skipped: true };
-          const st = reel.provider === 'j2v'
-            ? await (new J2VProvider()).getStatus(reel.renderId)
-            : reel.provider === 'remotion'
-              ? await (new RemotionProvider()).getStatus(reel.renderId)
-              : await (new ShotstackProvider()).getStatusRobust(reel.renderId);
+          const st = await new RemotionProvider().getStatus(reel.renderId);
           const status = mapStatus(st.status);
 
           // Copy video to S3 if still on a CDN bucket (Shotstack/JSON2Video/Remotion)
@@ -64,12 +46,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
             try {
               const u = new URL(finalUrl);
               const host = u.hostname || '';
-              const isShotstackCdn = host.includes('shotstack.io');
-              const isJ2V = host.includes('json2video');
               const isRemotionBucket =
                 host.includes('remotionlambda') ||
                 u.pathname.startsWith('/remotionlambda');
-              if (isShotstackCdn || isJ2V || isRemotionBucket) {
+              if (isRemotionBucket) {
                 const basePath = `orders/${reel.orderId}/reels/videos`;
                 const safeVar = (reel.variantKey || 'reel').replace(/[^A-Za-z0-9_-]/g, '_');
                 const name = `${safeVar}-${(reel.renderId || '').slice(0, 8)}.mp4`;
@@ -90,14 +70,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
           let thumbnail = st.thumbnail as string | undefined;
           if (status === 'COMPLETE' && (finalUrl || st.url) && !thumbnail && !reel.thumbnail && isS3Available()) {
             try {
-              let buf: Buffer;
-              if (reel.provider === 'remotion') {
-                const { composition, inputProps } = await buildRemotionThumbnailContext(reel);
-                const frame = await remotionPosterFrame(reel.variantKey);
-                buf = await new RemotionProvider().renderThumbnail(composition, inputProps, frame);
-              } else {
-                buf = await extractPosterFromVideoUrl(finalUrl || st.url!, 1);
-              }
+              const { composition, inputProps } = await buildRemotionThumbnailContext(reel);
+              const frame = await remotionPosterFrame(reel.variantKey);
+              const buf: Buffer = await new RemotionProvider().renderThumbnail(composition, inputProps, frame);
               if (buf && buf.length > 0) {
                 const basePath = `orders/${reel.orderId}/reels/posters`;
                 const safeVar = (reel.variantKey || 'reel').replace(/[^A-Za-z0-9_-]/g, '_');
@@ -151,6 +126,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
     return NextResponse.json({ ok: true, count: updates.length, updates, queueStarted });
   } catch (e) {
+    if (e instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error(e);
     return NextResponse.json({ error: 'Failed to sync reels' }, { status: 500 });
   }

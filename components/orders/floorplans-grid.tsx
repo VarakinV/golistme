@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, Trash2 } from 'lucide-react';
 import { DeleteIconButton } from '@/components/admin/ui/icon-action';
+import { requestPermission } from '@/lib/ui/feedback';
 
 interface Item {
   id: string;
@@ -14,9 +15,11 @@ interface Item {
 export function FloorplansGrid({
   orderId,
   refreshToken = 0,
+  canManage = true,
 }: {
   orderId: string;
   refreshToken?: number;
+  canManage?: boolean;
 }) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +45,10 @@ export function FloorplansGrid({
   }, [orderId, refreshToken]);
 
   async function removeMany(ids: string[]) {
+    if (!canManage) {
+      requestPermission('delete floor plans');
+      return;
+    }
     setDeleting('bulk');
     try {
       await fetch(`/api/orders/${orderId}/media/floorplans`, {

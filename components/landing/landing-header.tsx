@@ -28,7 +28,7 @@ export function LandingHeader() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="relative h-8 w-8">
-            <Image src="/Map-Pin-Logo.svg" alt="Photos4RealEstate logo" fill className="object-contain" sizes="32px" priority />
+            <Image src="/Map-Pin-Logo.svg" alt="GoList.me logo" fill className="object-contain" sizes="32px" priority />
           </div>
           <div className="leading-tight select-none">
             <div className="font-semibold text-[#cb4153]">Media Portal</div>

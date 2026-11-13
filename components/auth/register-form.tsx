@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { signIn } from 'next-auth/react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -28,7 +29,8 @@ import { getRecaptchaToken } from '@/lib/recaptcha/client';
 
 const formSchema = z
   .object({
-    name: z.string().min(1, 'Name is required'),
+    firstName: z.string().min(1, 'First name is required'),
+    lastName: z.string().min(1, 'Last name is required'),
     email: z.string().email('Invalid email address'),
     password: z.string().min(8, 'Password must be at least 8 characters'),
     confirmPassword: z.string(),
@@ -45,7 +47,8 @@ export function RegisterForm() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: '',
+      firstName: '',
+      lastName: '',
       email: '',
       password: '',
       confirmPassword: '',
@@ -63,7 +66,8 @@ export function RegisterForm() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          name: values.name,
+          firstName: values.firstName,
+          lastName: values.lastName,
           email: values.email,
           password: values.password,
           recaptchaToken: recaptchaToken || undefined,
@@ -84,8 +88,28 @@ export function RegisterForm() {
           toast.error(data.error || 'Registration failed');
         }
       } else {
-        toast.success('Registration successful! Please login.');
-        router.push('/login');
+        // Sign the new user in automatically. The account is unverified, so the
+        // portal layout will route them to the verification screen.
+        const loginToken = await getRecaptchaToken('login');
+        const result = await signIn('credentials', {
+          email: values.email,
+          password: values.password,
+          recaptchaToken: loginToken || undefined,
+          redirect: false,
+        });
+
+        if (result?.error) {
+          toast.success('Account created. Please sign in.');
+          router.push('/login');
+        } else {
+          toast.success(
+            data.verificationEmailSent
+              ? 'Account created. Check your email to verify your address.'
+              : 'Account created. Please verify your email address.'
+          );
+          router.push('/verify-email');
+          router.refresh();
+        }
       }
     } catch (error) {
       toast.error('An error occurred. Please try again.');
@@ -105,23 +129,34 @@ export function RegisterForm() {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="John Doe"
-                      {...field}
-                      disabled={isLoading}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="firstName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>First name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="John" autoComplete="given-name" {...field} disabled={isLoading} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="lastName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Last name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Doe" autoComplete="family-name" {...field} disabled={isLoading} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
             <FormField
               control={form.control}
               name="email"
@@ -131,7 +166,11 @@ export function RegisterForm() {
                   <FormControl>
                     <Input
                       type="email"
-                      placeholder="admin@example.com"
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       {...field}
                       disabled={isLoading}
                     />
@@ -172,6 +211,7 @@ export function RegisterForm() {
                       <Input
                         type="password"
                         placeholder="••••••••"
+                        autoComplete="new-password"
                         {...field}
                         disabled={isLoading}
                         aria-invalid={hasError}
@@ -209,6 +249,7 @@ export function RegisterForm() {
                       <Input
                         type="password"
                         placeholder="••••••••"
+                        autoComplete="new-password"
                         {...field}
                         disabled={isLoading}
                         aria-invalid={err}

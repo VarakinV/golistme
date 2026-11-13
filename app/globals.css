@@ -289,6 +289,35 @@
     margin-bottom: 4px;
   }
 
+  /* Google Places autocomplete widget: match .field */
+  gmp-place-autocomplete {
+    width: 100%;
+    background-color: var(--card);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    color-scheme: light dark;
+    font-family: inherit;
+    font-size: 0.875rem;
+  }
+  gmp-place-autocomplete::part(input) {
+    min-height: 2.25rem;
+    padding: 0.5rem 0.75rem;
+    border: 0;
+    background-color: var(--card);
+    color: var(--foreground);
+    font-family: inherit;
+    font-size: 0.875rem;
+  }
+  gmp-place-autocomplete::part(prediction-list) {
+    font-family: inherit;
+    font-size: 0.875rem;
+    background: var(--card);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+  }
+
   /* Responsive table: stacked cards on small screens */
   .table-responsive table {
     width: 100%;

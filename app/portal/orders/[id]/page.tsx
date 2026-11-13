@@ -1,4 +1,8 @@
-import { auth } from '@/lib/auth/auth';
+import {
+  getAuthContext,
+  hasPermission,
+  listingWhereForContext,
+} from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import { notFound } from 'next/navigation';
 import { PortalOrderDetails } from '@/components/portal/PortalOrderDetails';
@@ -9,24 +13,24 @@ export default async function PortalOrderDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = await auth();
-  const user = session?.user as any;
-  if (!user) return notFound();
+  const ctx = await getAuthContext();
+  if (!ctx) return notFound();
 
-  const order = await prisma.order.findUnique({
-    where: { id },
+  const order = await prisma.listing.findFirst({
+    where: { id, ...listingWhereForContext(ctx) },
     include: { realtor: true },
   });
   if (!order) return notFound();
 
-  if (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') {
-    if (!user.realtorId || user.realtorId !== order.realtorId)
-      return notFound();
-  }
-
   return (
     <div className="w-full">
-      <PortalOrderDetails orderId={id} />
+      <PortalOrderDetails
+        orderId={id}
+        canManageListings={hasPermission(ctx, 'MANAGE_LISTINGS')}
+        canGenerateMarketing={hasPermission(ctx, 'GENERATE_MARKETING')}
+        canViewAnalytics={hasPermission(ctx, 'VIEW_ANALYTICS')}
+        canViewLeads={hasPermission(ctx, 'VIEW_LEADS')}
+      />
     </div>
   );
 }

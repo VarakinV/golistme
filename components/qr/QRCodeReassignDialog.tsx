@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { showErrorDialog } from '@/lib/ui/feedback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface QRCodeReassignDialogProps {
@@ -80,12 +80,12 @@ export function QRCodeReassignDialog({
     e.preventDefault();
 
     if (!selectedOrderId) {
-      toast.error('Please select an order');
+      showErrorDialog('Please select an order');
       return;
     }
 
     if (selectedOrderId === currentOrderId) {
-      toast.error('QR code is already assigned to this order');
+      showErrorDialog('QR code is already assigned to this order');
       return;
     }
 
@@ -105,11 +105,11 @@ export function QRCodeReassignDialog({
         onSuccess();
       } else {
         const data = await res.json();
-        toast.error(data.error || 'Failed to reassign QR code');
+        showErrorDialog(data.error || 'Failed to reassign QR code');
       }
     } catch (e) {
       console.error(e);
-      toast.error('Failed to reassign QR code');
+      showErrorDialog('Failed to reassign QR code');
     } finally {
       setSubmitting(false);
     }

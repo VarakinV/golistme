@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, RotateCcw } from 'lucide-react';
 import { DeleteIconButton } from '@/components/admin/ui/icon-action';
+import { requestPermission, showErrorDialog } from '@/lib/ui/feedback';
 import { toast } from 'sonner';
 
 function statusColor(s: string) {
@@ -31,9 +32,11 @@ function variantLabel(v: string) {
 export default function FlyersList({
   orderId,
   refreshToken = 0,
+  canGenerate = true,
 }: {
   orderId: string;
   refreshToken?: number;
+  canGenerate?: boolean;
 }) {
   const [flyers, setFlyers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,7 +52,7 @@ export default function FlyersList({
       if (!res.ok) throw new Error(json?.error || 'Failed to load flyers');
       setFlyers(json);
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     } finally {
       setLoading(false);
     }
@@ -71,6 +74,10 @@ export default function FlyersList({
   }, [hasActive]);
 
   const onRetry = async (fid: string) => {
+    if (!canGenerate) {
+      requestPermission('generate or regenerate flyers');
+      return;
+    }
     try {
       const res = await fetch(`/api/orders/${orderId}/flyers/${fid}/retry`, {
         method: 'POST',
@@ -80,11 +87,15 @@ export default function FlyersList({
       toast.success('Flyer re-generated');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     }
   };
 
   const onDelete = async (fid: string) => {
+    if (!canGenerate) {
+      requestPermission('delete flyers');
+      return;
+    }
     setDeletingId(fid);
     try {
       const res = await fetch(`/api/orders/${orderId}/flyers/${fid}/delete`, {
@@ -95,7 +106,7 @@ export default function FlyersList({
       toast.success('Flyer deleted');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     } finally {
       setDeletingId(null);
     }

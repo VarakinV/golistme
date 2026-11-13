@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { auth } from '@/lib/auth/auth';
+import { getAuthContext, hasPermission, isPlatformAdmin } from '@/lib/auth/workspace';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -12,15 +12,17 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const ctx = await getAuthContext();
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(ctx, 'MANAGE_LISTINGS')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
     }
 
     const { id } = await params;
-    const user = session.user as any;
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    const realtorId = user?.realtorId as string | undefined;
+    const isAdmin = isPlatformAdmin(ctx);
+    const realtorId = ctx.workspaceId;
 
     const assignment = await prisma.qRAssignment.findUnique({
       where: { id },

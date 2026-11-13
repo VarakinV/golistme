@@ -143,7 +143,8 @@ export class RemotionProvider implements VideoProvider {
 
     // Optional: direct write to your own S3 bucket (requires the Lambda role to
     // have PutObject on that bucket). Leave unset — output lands in Remotion's
-    // bucket and the webhook copies it into photos4remedia instead.
+    // bucket and the webhook copies it into the GoList media bucket
+    // (AWS_S3_BUCKET_NAME) instead.
     const outputBucket = process.env.REMOTION_OUTPUT_BUCKET?.trim();
     const outName = outputBucket
       ? {

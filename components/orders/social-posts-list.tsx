@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, RotateCcw, Download } from 'lucide-react';
 import { DeleteIconButton } from '@/components/admin/ui/icon-action';
+import { requestPermission, showErrorDialog } from '@/lib/ui/feedback';
 import { toast } from 'sonner';
 
 function statusColor(s: string) {
@@ -28,9 +29,11 @@ function prettyVariant(v: string) {
 export default function SocialPostsList({
   orderId,
   refreshToken = 0,
+  canGenerate = true,
 }: {
   orderId: string;
   refreshToken?: number;
+  canGenerate?: boolean;
 }) {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,7 +47,7 @@ export default function SocialPostsList({
       if (!res.ok) throw new Error(json?.error || 'Failed to load posts');
       setPosts(json);
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     } finally {
       setLoading(false);
     }
@@ -66,6 +69,10 @@ export default function SocialPostsList({
   }, [hasActive]);
 
   const onRender = async (id: string) => {
+    if (!canGenerate) {
+      requestPermission('generate social posts');
+      return;
+    }
     try {
       const res = await fetch(`/api/orders/${orderId}/social-posts/${id}/render`, { method: 'POST' });
       const json = await res.json();
@@ -73,11 +80,15 @@ export default function SocialPostsList({
       toast.success('Post generation started');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     }
   };
 
   const onDelete = async (id: string) => {
+    if (!canGenerate) {
+      requestPermission('delete social posts');
+      return;
+    }
     setDeletingId(id);
     try {
       const res = await fetch(`/api/orders/${orderId}/social-posts/${id}/delete`, { method: 'POST' });
@@ -86,7 +97,7 @@ export default function SocialPostsList({
       toast.success('Post deleted');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     } finally {
       setDeletingId(null);
     }

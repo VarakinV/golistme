@@ -479,7 +479,7 @@ export default function PropertyTemplateV4({
   order: any;
   baseUrl: string;
 }) {
-  const realtorName = `${order.realtor.firstName} ${order.realtor.lastName}`;
+  const realtorName = [order.realtor.firstName, order.realtor.lastName].filter(Boolean).join(' ') || order.realtor.name || 'Realtor';
   const fullUrl = `${baseUrl}/property/${order.id}/v4`;
 
   /* ── Address ─────────────────────────────────── */
@@ -1167,18 +1167,18 @@ export default function PropertyTemplateV4({
               <span>
                 Powered by{' '}
                 <a
-                  href="https://photos4realestate.ca/"
+                  href="https://golist.me/"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Photos 4 Real Estate
+                  GoList.me
                 </a>
               </span>
               <span>·</span>
               <span>© {new Date().getFullYear()} All Rights Reserved</span>
               <span>·</span>
               <a
-                href="https://photos4realestate.ca/terms-and-conditions/"
+                href="https://golist.me/terms-and-conditions/"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -1186,7 +1186,7 @@ export default function PropertyTemplateV4({
               </a>
               <span>·</span>
               <a
-                href="https://photos4realestate.ca/privacy-policy/"
+                href="https://golist.me/privacy-policy/"
                 target="_blank"
                 rel="noopener noreferrer"
               >

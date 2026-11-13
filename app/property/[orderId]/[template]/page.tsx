@@ -14,7 +14,7 @@ import HomeWorthWidget from '@/components/property/HomeWorthWidget';
 import MortgageCalculatorTag from '@/components/property/MortgageCalculatorTag';
 
 async function getOrder(orderId: string) {
-  return prisma.order.findUnique({
+  return prisma.listing.findUnique({
     where: { id: orderId },
     include: {
       realtor: true,
@@ -43,7 +43,7 @@ export async function generateMetadata({
   const shareDescription = `Check this property at ${title} — photos, floor plans, and more.`;
   const image = order.photos[0]?.urlMls || order.photos[0]?.url;
   return {
-    title: `${title} — Media Portal`,
+    title: `${title} — GoList.me`,
     description: shareDescription,
     openGraph: {
       title,

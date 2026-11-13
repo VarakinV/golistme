@@ -36,7 +36,7 @@ function checkRateLimit(ip: string): boolean {
 
 async function sendEmail({ to, subject, html, replyTo }: { to: string; subject: string; html: string; replyTo?: string }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const from = process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   if (!apiKey) {
     console.warn('[QR LEAD] RESEND_API_KEY not set; logging instead.');
     console.log('[QR LEAD EMAIL]', { to, subject });
@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
 
     await prisma.propertyInquiry.create({
       data: {
+        workspaceId: assignment.order.realtorId,
         orderId: assignment.orderId,
         name: parsed.data.name.trim(),
         email: parsed.data.email?.trim() || '',

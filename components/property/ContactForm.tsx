@@ -53,7 +53,7 @@ export default function ContactForm({
 
   return (
     <>
-      <Toaster />
+      <Toaster richColors />
 
       <form onSubmit={onSubmit} className="space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

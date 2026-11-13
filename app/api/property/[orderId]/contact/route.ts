@@ -13,7 +13,7 @@ const schema = z.object({
 
 async function sendEmail({ to, subject, html, replyTo }: { to: string; subject: string; html: string; replyTo?: string }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const from = process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   if (!apiKey) {
     console.warn('[PROPERTY CONTACT] RESEND_API_KEY not set; logging instead.');
     console.log('[PROPERTY CONTACT EMAIL]', { to, subject });
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     }
 
     // Load order + realtor to get recipient
-    const order = await prisma.order.findUnique({
+    const order = await prisma.listing.findUnique({
       where: { id: orderId },
       include: { realtor: true },
     });
@@ -84,11 +84,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     // Store inquiry
     await prisma.propertyInquiry.create({
       data: {
+        workspaceId: order.realtorId,
         orderId: order.id,
         name: parsed.data.name.trim(),
         email: parsed.data.email.trim(),
         phone: parsed.data.phone?.trim() || null,
         message: parsed.data.message.trim(),
+        source: 'WEBSITE',
       },
     });
 

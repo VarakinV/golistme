@@ -324,7 +324,7 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      <Toaster />
+      <Toaster richColors />
     </div>
   );
 }

@@ -68,8 +68,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Copy the finished MP4 into photos4remedia if Remotion wrote it to its own
-    // remotionlambda-* bucket (lifecycle rules delete those renders after ~1 day).
+    // Copy the finished MP4 into the GoList media bucket (AWS_S3_BUCKET_NAME)
+    // if Remotion wrote it to its own remotionlambda-* bucket, whose lifecycle
+    // rules delete renders after about one day.
     if (status === 'COMPLETE' && resolvedUrl && isS3Available()) {
       try {
         const u = new URL(resolvedUrl);

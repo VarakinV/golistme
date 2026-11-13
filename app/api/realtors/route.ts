@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth/auth";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
+import {
+  getAuthContext,
+  isPlatformAdmin,
+  WorkspaceAccessError,
+  ACTIVE_WORKSPACE_COOKIE,
+} from "@/lib/auth/workspace";
+import { createWorkspaceForUser } from "@/lib/workspaces/create";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// Schema for creating/updating a realtor
-const realtorSchema = z.object({
+const workspaceSchema = z.object({
+  name: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address"),
-  // Treat empty strings as undefined so they pass validation and become null in DB
   phone: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional().nullable()),
   headshot: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional().nullable()),
   companyName: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional().nullable()),
@@ -26,131 +32,91 @@ const realtorSchema = z.object({
   tiktokUrl: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional().nullable()),
 });
 
-// GET /api/realtors - Get all realtors for the current user
 export async function GET() {
   try {
-    const session = await auth();
+    const ctx = await getAuthContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const workspaces = isPlatformAdmin(ctx)
+      ? await prisma.realtorWorkspace.findMany({ orderBy: { createdAt: "desc" }, take: 200 })
+      : await prisma.realtorWorkspace.findMany({
+          where: {
+            memberships: { some: { userId: ctx.userId, status: "ACTIVE" } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        });
 
-    const me: any = session.user;
-
-    let realtors;
-    if (me.role === 'SUPERADMIN') {
-      // Superadmin can see all realtors
-      realtors = await prisma.realtor.findMany({
-        orderBy: { createdAt: 'desc' },
-      });
-    } else if (me.role === 'ADMIN') {
-      // Admin sees realtors assigned to them via RealtorAssignment
-      realtors = await prisma.realtor.findMany({
-        where: {
-          OR: [
-            { assignedAdmins: { some: { adminId: me.id } } },
-            { userId: me.id },
-          ],
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    } else {
-      // Others: no access via this admin endpoint
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    return NextResponse.json(realtors);
+    return NextResponse.json(workspaces);
   } catch (error) {
-    console.error("Error fetching realtors:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch realtors" },
-      { status: 500 }
-    );
+    console.error("Error fetching workspaces:", error);
+    return NextResponse.json({ error: "Failed to fetch workspaces" }, { status: 500 });
   }
 }
 
-// POST /api/realtors - Create a new realtor
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const ctx = await getAuthContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await request.json();
-
-    // Validate input
-    const validatedFields = realtorSchema.safeParse(body);
-
-    if (!validatedFields.success) {
+    const validated = workspaceSchema.safeParse(body);
+    if (!validated.success) {
       return NextResponse.json(
-        { error: "Invalid fields", details: validatedFields.error.flatten() },
+        { error: "Invalid fields", details: validated.error.flatten() },
         { status: 400 }
       );
     }
 
-    const { firstName, lastName, email: rawEmail, phone, headshot, companyName, companyLogo, facebookUrl, linkedinUrl, instagramUrl, youtubeUrl, twitterUrl, pinterestUrl, vimeoUrl, tiktokUrl } = validatedFields.data;
-    const email = rawEmail.trim().toLowerCase();
+    const data = validated.data;
+    const email = data.email.trim().toLowerCase();
 
-    // Check if realtor with this email already exists
-    const existingRealtor = await prisma.realtor.findUnique({
-      where: { email },
+    const workspace = await createWorkspaceForUser({
+      userId: ctx.userId,
+      name: data.name || data.companyName || `${data.firstName} ${data.lastName}`.trim(),
+      email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      companyName: data.companyName ?? null,
     });
 
-    if (existingRealtor) {
-      return NextResponse.json(
-        { error: "A realtor with this email already exists" },
-        { status: 409 }
-      );
-    }
-
-    // Create realtor
-    const realtor = await prisma.realtor.create({
+    const updated = await prisma.realtorWorkspace.update({
+      where: { id: workspace.id },
       data: {
-        firstName,
-        lastName,
-        email,
-        phone: phone || null,
-        headshot: headshot || null,
-        companyName: companyName || null,
-        companyLogo: companyLogo || null,
-        facebookUrl: facebookUrl || null,
-        linkedinUrl: linkedinUrl || null,
-        instagramUrl: instagramUrl || null,
-        youtubeUrl: youtubeUrl || null,
-        twitterUrl: twitterUrl || null,
-        pinterestUrl: pinterestUrl || null,
-        vimeoUrl: vimeoUrl || null,
-        tiktokUrl: tiktokUrl || null,
-        userId: session.user.id,
+        phone: data.phone || null,
+        headshot: data.headshot || null,
+        companyLogo: data.companyLogo || null,
+        facebookUrl: data.facebookUrl || null,
+        linkedinUrl: data.linkedinUrl || null,
+        instagramUrl: data.instagramUrl || null,
+        youtubeUrl: data.youtubeUrl || null,
+        twitterUrl: data.twitterUrl || null,
+        pinterestUrl: data.pinterestUrl || null,
+        vimeoUrl: data.vimeoUrl || null,
+        tiktokUrl: data.tiktokUrl || null,
       },
     });
 
-    // Auto-assign the creating admin to this realtor so it appears in their list
-    try {
-      const adminId = session.user.id;
-      await prisma.realtorAssignment.upsert({
-        where: { adminId_realtorId: { adminId, realtorId: realtor.id } },
-        create: { adminId, realtorId: realtor.id },
-        update: {},
-      });
-    } catch (e) {
-      console.warn('Failed to create self-assignment for admin -> realtor', e);
-    }
+    await prisma.user.update({
+      where: { id: ctx.userId },
+      data: { lastActiveWorkspaceId: workspace.id },
+    });
 
-    return NextResponse.json(realtor, { status: 201 });
+    const store = await cookies();
+    store.set(ACTIVE_WORKSPACE_COOKIE, workspace.id, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    });
+
+    return NextResponse.json(updated, { status: 201 });
   } catch (error) {
-    console.error("Error creating realtor:", error);
-    return NextResponse.json(
-      { error: "Failed to create realtor" },
-      { status: 500 }
-    );
+    if (error instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("Error creating workspace:", error);
+    return NextResponse.json({ error: "Failed to create workspace" }, { status: 500 });
   }
 }

@@ -91,7 +91,7 @@ export function AdminSidebar({
           </svg>
           <div className={`min-w-0 whitespace-nowrap ${collapsed ? 'lg:hidden' : ''}`}>
             <div className="font-display text-[15px] font-semibold leading-tight text-white">
-              Photos 4 Real Estate
+              GoList.me
             </div>
             <div className="text-[11.5px] text-[#8791b8]">Admin portal</div>
           </div>

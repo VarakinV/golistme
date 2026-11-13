@@ -4,13 +4,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Images, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { requestPermission } from '@/lib/ui/feedback';
 
 export function GenerateSocialPostsButton({
   orderId,
   onStarted,
+  allowed = true,
 }: {
   orderId: string;
   onStarted?: () => void;
+  allowed?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +55,10 @@ export function GenerateSocialPostsButton({
   }, [order, sourcesCount]);
 
   async function handleGenerate() {
+    if (!allowed) {
+      requestPermission('generate social posts');
+      return;
+    }
     try {
       setSubmitting(true);
       const res = await fetch(`/api/orders/${orderId}/social-posts/generate`, { method: 'POST' });
@@ -87,7 +94,7 @@ export function GenerateSocialPostsButton({
     );
   }
 
-  const disabled = missing.length > 0 || submitting;
+  const disabled = allowed && (missing.length > 0 || submitting);
   const title = disabled ? `Missing: ${missing.join(', ')}` : 'Generate all active social posts';
 
   return (

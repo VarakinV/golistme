@@ -1,65 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { auth } from '@/lib/auth/auth';
-import { deleteFromS3 } from '@/lib/utils/s3';
+import { resolveListingStatusUpdate } from '@/lib/listings/status';
+import { deleteListingCompletely } from '@/lib/listings/delete';
+import {
+  getAuthContext,
+  hasPermission,
+  listingWhereForContext,
+  WorkspaceAccessError,
+} from '@/lib/auth/workspace';
+
+const REALTOR_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  phone: true,
+  headshot: true,
+  companyName: true,
+  companyLogo: true,
+} as const;
+
+async function loadListingForCaller(id: string) {
+  const ctx = await getAuthContext();
+  if (!ctx) throw new WorkspaceAccessError('Unauthorized', 401);
+
+  const listing = await prisma.listing.findFirst({
+    where: { id, ...listingWhereForContext(ctx) },
+    include: { realtor: { select: REALTOR_SELECT } },
+  });
+  if (!listing) throw new WorkspaceAccessError('Order not found', 404);
+
+  return { ctx, listing };
+}
+
+function errorResponse(e: unknown, fallback: string) {
+  if (e instanceof WorkspaceAccessError) {
+    return NextResponse.json({ error: e.message }, { status: e.status });
+  }
+  console.error(e);
+  return NextResponse.json({ error: fallback }, { status: 500 });
+}
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
-
-    const order = await prisma.order.findUnique({
-      where: { id },
-      include: {
-        realtor: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, headshot: true, companyName: true, companyLogo: true } },
-        aiReels: { orderBy: { createdAt: 'desc' } },
-      },
-    });
-
-    if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-
-    // Allow if admin or if user's realtor membership matches the order's realtor
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) {
-        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-      }
-    }
-
-    return NextResponse.json(order);
+    const { listing } = await loadListingForCaller(id);
+    return NextResponse.json(listing);
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Failed to fetch order' }, { status: 500 });
+    return errorResponse(e, 'Failed to fetch order');
   }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
-
-    // Permission check
-    const current = await prisma.order.findUnique({ where: { id } });
-    if (!current) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || current.realtorId !== realtorId) {
-        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-      }
+    const { ctx, listing: current } = await loadListingForCaller(id);
+    if (!hasPermission(ctx, 'MANAGE_LISTINGS')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
     }
 
     const body = await req.json();
 
+    const statusUpdate =
+      body.status != null ? resolveListingStatusUpdate(current.status, body.status) : null;
+    if (statusUpdate && !statusUpdate.ok) {
+      return NextResponse.json({ error: statusUpdate.error }, { status: 400 });
+    }
+
     // Only allow updates to property data and status for now
-    const updated = await prisma.order.update({
+    const updated = await prisma.listing.update({
       where: { id },
       data: {
         propertyAddress: body.propertyAddress,
@@ -82,40 +91,35 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         bathrooms: body.bathrooms == null || body.bathrooms === '' ? null : String(body.bathrooms),
         featuresText: body.featuresText ?? null,
         description: body.description ?? null,
-        status: body.status ?? undefined,
+        ...(statusUpdate?.ok
+          ? { status: statusUpdate.status, ...statusUpdate.timestamps }
+          : {}),
       },
       include: { realtor: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, headshot: true, companyName: true, companyLogo: true } } },
     });
 
     return NextResponse.json(updated);
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
+    return errorResponse(e, 'Failed to update order');
   }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id)
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
-
-    // Permission check
-    const current = await prisma.order.findUnique({ where: { id } });
-    if (!current) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || current.realtorId !== realtorId) {
-        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-      }
+    const { ctx, listing: current } = await loadListingForCaller(id);
+    if (!hasPermission(ctx, 'MANAGE_LISTINGS')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
     }
 
     const body: any = await req.json();
     const data: any = {};
+
+    const statusUpdate =
+      body.status != null ? resolveListingStatusUpdate(current.status, body.status) : null;
+    if (statusUpdate && !statusUpdate.ok) {
+      return NextResponse.json({ error: statusUpdate.error }, { status: 400 });
+    }
 
     if ('propertyAddress' in body) data.propertyAddress = body.propertyAddress;
     if ('propertyFormattedAddress' in body)
@@ -173,9 +177,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           : Number(body.bathrooms);
     if ('featuresText' in body) data.featuresText = body.featuresText ?? null;
     if ('description' in body) data.description = body.description ?? null;
-    if ('status' in body) data.status = body.status;
+    if ('status' in body) {
+      if (!statusUpdate?.ok) {
+        return NextResponse.json({ error: 'Invalid status update' }, { status: 400 });
+      }
+      data.status = statusUpdate.status;
+      Object.assign(data, statusUpdate.timestamps);
+    }
 
-    const updated = await prisma.order.update({
+    const updated = await prisma.listing.update({
       where: { id },
       data,
       include: { realtor: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, headshot: true, companyName: true, companyLogo: true } } },
@@ -183,66 +193,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     return NextResponse.json(updated);
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
+    return errorResponse(e, 'Failed to update order');
   }
 }
 
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { id } = await params;
-
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
-
-    // Verify permission
-    const order = await prisma.order.findUnique({ where: { id } });
-    if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) {
-        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-      }
+    const { ctx } = await loadListingForCaller(id);
+    if (!hasPermission(ctx, 'MANAGE_LISTINGS')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
     }
 
-    // Fetch related media to delete from S3
-    const [photos, videos, floors, attaches, reelSources] = await Promise.all([
-      prisma.photo.findMany({ where: { orderId: id } }),
-      prisma.video.findMany({ where: { orderId: id } }),
-      prisma.floorPlan.findMany({ where: { orderId: id } }),
-      prisma.attachment.findMany({ where: { orderId: id } }),
-      prisma.orderReelSourceImage.findMany({ where: { orderId: id } }),
-    ]);
-
-    // Best-effort S3 cleanup (non-blocking failures)
-    await Promise.all([
-      ...photos.map(async (p) => { try { await deleteFromS3(p.url); if (p.urlMls) await deleteFromS3(p.urlMls); } catch {} }),
-      ...videos.map(async (v) => { try { await deleteFromS3(v.url); } catch {} }),
-      ...floors.map(async (f) => { try { await deleteFromS3(f.url); } catch {} }),
-      ...attaches.map(async (a) => { try { await deleteFromS3(a.url); } catch {} }),
-      ...reelSources.map(async (s) => { try { await deleteFromS3(s.url); } catch {} }),
-    ]);
-
-    // Delete DB records in a transaction (delete children first to satisfy FK constraints)
-    await prisma.$transaction([
-      prisma.photo.deleteMany({ where: { orderId: id } }),
-      prisma.video.deleteMany({ where: { orderId: id } }),
-      prisma.floorPlan.deleteMany({ where: { orderId: id } }),
-      prisma.attachment.deleteMany({ where: { orderId: id } }),
-      prisma.embed.deleteMany({ where: { orderId: id } }),
-      prisma.orderReelSourceImage.deleteMany({ where: { orderId: id } }),
-      prisma.orderReel.deleteMany({ where: { orderId: id } }),
-      prisma.propertyInquiry.deleteMany({ where: { orderId: id } }),
-      prisma.propertyPage.deleteMany({ where: { orderId: id } }),
-      prisma.order.delete({ where: { id } }),
-    ]);
+    // Remove the listing and all of its assets. QR codes and printables stay.
+    await deleteListingCompletely(id);
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Failed to delete order' }, { status: 500 });
+    return errorResponse(e, 'Failed to delete order');
   }
 }

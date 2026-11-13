@@ -34,15 +34,6 @@ type DashboardStats = {
   }[];
 };
 
-type BookingRow = {
-  id: string;
-  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED';
-  start: string;
-  propertyFormattedAddress?: string | null;
-  propertyAddress: string;
-  contactName: string;
-};
-
 function money(cents: number) {
   return '$' + (cents / 100).toFixed(0);
 }
@@ -59,64 +50,6 @@ export default function AdminDashboard() {
   const [year, setYear] = useState<number>(currentYear);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loadingStats, setLoadingStats] = useState<boolean>(true);
-
-  // Schedule (next 14 days)
-  const [scheduleRows, setScheduleRows] = useState<BookingRow[]>([]);
-  const [loadingSchedule, setLoadingSchedule] = useState<boolean>(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoadingSchedule(true);
-      try {
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const end = new Date(start);
-        end.setDate(end.getDate() + 13);
-        const params = new URLSearchParams();
-        params.set('start', start.toISOString());
-        params.set('end', end.toISOString());
-        const res = await fetch(`/api/bookings?${params.toString()}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || 'Failed to load schedule');
-        if (!cancelled) setScheduleRows(data as BookingRow[]);
-      } catch (e) {
-        console.error(e);
-        if (!cancelled) setScheduleRows([]);
-      } finally {
-        if (!cancelled) setLoadingSchedule(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const scheduleDays = useMemo(() => {
-    function startOfDay(d: Date) {
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    }
-    const today = startOfDay(new Date());
-    const days = Array.from({ length: 14 }, (_v, i) => {
-      const d = new Date(today);
-      d.setDate(d.getDate() + i);
-      return d;
-    });
-    return days.map((d) => ({
-      date: d,
-      items: scheduleRows
-        .filter((r) => r.status !== 'CANCELLED')
-        .filter((r) => {
-          const t = new Date(r.start);
-          return (
-            t.getFullYear() === d.getFullYear() &&
-            t.getMonth() === d.getMonth() &&
-            t.getDate() === d.getDate()
-          );
-        })
-        .sort((a, b) => +new Date(a.start) - +new Date(b.start)),
-    }));
-  }, [scheduleRows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,11 +93,6 @@ export default function AdminDashboard() {
     return `${diff > 0 ? '+' : '−'}$${Math.abs(diff / 100).toFixed(0)} vs last month`;
   }, [stats, monthIdx, aovNow]);
 
-  const upcoming = scheduleRows.filter((r) => r.status !== 'CANCELLED');
-  const nextBooking = upcoming
-    .slice()
-    .sort((a, b) => +new Date(a.start) - +new Date(b.start))[0];
-
   return (
     <div className="w-full">
       <Suspense>
@@ -173,7 +101,7 @@ export default function AdminDashboard() {
 
       <PageHead
         title={`Welcome back, ${firstName}`}
-        subtitle="Here's what's happening across your bookings this month."
+        subtitle="Here's what's happening across your listings this month."
         actions={
           <>
             <button
@@ -215,112 +143,7 @@ export default function AdminDashboard() {
           value={loadingStats || !stats ? '—' : aovNow ? money(aovNow) : '—'}
           delta={aovDelta ?? 'Current month'}
         />
-        <KpiCard
-          icon={Calendar}
-          label="Upcoming bookings"
-          value={loadingSchedule ? '—' : upcoming.length}
-          delta={
-            nextBooking
-              ? `Next: ${new Date(nextBooking.start).toLocaleDateString(undefined, {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                })}`
-              : 'None scheduled'
-          }
-          tone="navy"
-        />
       </div>
-
-      {/* Schedule strip */}
-      <section className="mb-6 rounded-2xl border border-border bg-card p-4.5">
-        <div className="mb-3.5 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-display text-[15px] font-semibold">Schedule</h3>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              Upcoming bookings, next 14 days
-            </div>
-          </div>
-          <Link
-            href="/admin/bookings"
-            className="flex items-center gap-1 text-[12.5px] font-semibold text-brick-600 hover:underline dark:text-brick-500"
-          >
-            View bookings <ChevronRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-        {loadingSchedule ? (
-          <div className="flex h-28 items-center justify-center text-muted-foreground">
-            Loading…
-          </div>
-        ) : (
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {scheduleDays.map(({ date, items }) => {
-              const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
-              const dayLabel = date.toLocaleDateString(undefined, {
-                month: 'short',
-                day: 'numeric',
-              });
-              return (
-                <div
-                  key={date.toISOString()}
-                  className={`relative min-w-[148px] flex-1 overflow-hidden rounded-xl border p-3 ${
-                    items.length > 0
-                      ? 'border-brick-tint-strong bg-card'
-                      : 'border-border bg-surface-2'
-                  }`}
-                >
-                  {items.length > 0 && (
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-0 left-0 w-[3px] bg-brick-500"
-                    />
-                  )}
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{weekday}</span>
-                    {items.length > 0 && (
-                      <span className="rounded-full bg-brick-500 px-1.5 py-px text-[10.5px] font-bold text-white">
-                        {items.length}
-                      </span>
-                    )}
-                  </div>
-                  <div className="font-display my-1.5 text-[15px] font-semibold">
-                    {dayLabel}
-                  </div>
-                  {items.length === 0 ? (
-                    <div className="text-xs text-faint">No bookings</div>
-                  ) : (
-                    <ul className="space-y-1">
-                      {items.slice(0, 3).map((b) => {
-                        const t = new Date(b.start);
-                        const time = t.toLocaleTimeString(undefined, {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        });
-                        const addr = b.propertyFormattedAddress || b.propertyAddress;
-                        return (
-                          <li
-                            key={b.id}
-                            className="truncate text-[11.5px] leading-snug text-muted-foreground"
-                            title={addr}
-                          >
-                            <span className="font-semibold text-foreground">{time}</span> — {addr}
-                          </li>
-                        );
-                      })}
-                      {items.length > 3 && (
-                        <li className="text-[11.5px] text-faint">
-                          +{items.length - 3} more
-                        </li>
-                      )}
-                    </ul>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
       {/* Charts */}
       <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[1.25fr_1fr]">
         <div className="rounded-2xl border border-border bg-card p-4.5">
@@ -353,7 +176,7 @@ export default function AdminDashboard() {
         <div className="rounded-2xl border border-border bg-card p-4.5">
           <div className="mb-3.5">
             <h3 className="font-display text-[15px] font-semibold">Average order value</h3>
-            <div className="mt-0.5 text-xs text-muted-foreground">Per booking, {year}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">Per transaction, {year}</div>
           </div>
           {loadingStats || !stats ? (
             <div className="flex h-[230px] items-center justify-center text-muted-foreground">

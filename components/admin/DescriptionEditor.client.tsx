@@ -49,6 +49,32 @@ export default function DescriptionEditorClient({
       <style jsx global>{`
         .rsw-ce ul { list-style: disc; padding-left: 1.5rem; }
         .rsw-ce ol { list-style: decimal; padding-left: 1.5rem; }
+        .rsw-ce {
+          min-height: 300px;
+          overflow: auto;
+          resize: vertical;
+        }
+        .rsw-ce p { margin: 0 0 0.75rem; }
+        .rsw-ce h1 {
+          font-size: 2rem;
+          line-height: 1.2;
+          font-weight: 700;
+          margin: 0.75rem 0 0.5rem;
+        }
+        .rsw-ce h2 {
+          font-size: 1.5rem;
+          line-height: 1.25;
+          font-weight: 700;
+          margin: 0.75rem 0 0.5rem;
+        }
+        .rsw-ce h3 {
+          font-size: 1.25rem;
+          line-height: 1.3;
+          font-weight: 600;
+          margin: 0.75rem 0 0.5rem;
+        }
+        .rsw-ce strong, .rsw-ce b { font-weight: 700; }
+        .rsw-ce em, .rsw-ce i { font-style: italic; }
       `}</style>
 
       {/* Hidden input so plain HTML forms (edit page) can submit the value */}

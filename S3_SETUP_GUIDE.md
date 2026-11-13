@@ -63,7 +63,7 @@ If you want headshots to be publicly accessible:
 
 1. Go to IAM service
 2. Click "Users" → "Add users"
-3. Enter username (e.g., `hdphotohub-s3-user`)
+3. Enter username (e.g., `golistme-s3-user`)
 4. Select "Programmatic access"
 5. Click "Next: Permissions"
 6. Click "Attach existing policies directly"

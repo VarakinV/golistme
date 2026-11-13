@@ -8,32 +8,40 @@ import { ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InviteUserForm } from '@/components/admin/invite-user-form';
 
-export default async function RealtorUsersPage({
+export default async function WorkspaceUsersPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const session = await auth();
   const user = session?.user as any;
-  if (!user || user.role !== 'ADMIN') redirect('/login');
+  if (!user || (user.platformRole !== 'ADMIN' && user.platformRole !== 'SUPERADMIN')) {
+    redirect('/login');
+  }
 
   const { id } = await params;
-  const realtor = await prisma.realtor.findUnique({
+  const workspace = await prisma.realtorWorkspace.findUnique({
     where: { id },
-    include: { users: true },
+    include: {
+      memberships: {
+        where: { status: { in: ['ACTIVE', 'INVITED'] } },
+        include: { user: { select: { id: true, email: true, name: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
   });
-  if (!realtor) redirect('/admin/clients');
+  if (!workspace) redirect('/admin/clients');
 
   const invites = await prisma.invitation.findMany({
-    where: { realtorId: id, acceptedAt: null },
+    where: { workspaceId: id, status: 'PENDING' },
+    orderBy: { createdAt: 'desc' },
   });
 
   const action = async (formData: FormData) => {
     'use server';
     const email = String(formData.get('email') || '').trim();
-    const role = String(formData.get('role') || 'REALTOR').toUpperCase() as
-      | 'REALTOR'
-      | 'ADMIN';
+    const roleValue = String(formData.get('role') || 'ASSISTANT');
+    const role = roleValue === 'OWNER' ? 'OWNER' : 'ASSISTANT';
     if (!email) return;
     const hdrs = await headers();
     const proto = hdrs.get('x-forwarded-proto') ?? 'http';
@@ -53,7 +61,7 @@ export default async function RealtorUsersPage({
       headers: { 'Content-Type': 'application/json', Cookie: cookieHeader },
       credentials: 'include',
       cache: 'no-store',
-      body: JSON.stringify({ email, realtorId: id, role }),
+      body: JSON.stringify({ email, workspaceId: id, role }),
     });
 
     if (!res.ok) {
@@ -72,18 +80,18 @@ export default async function RealtorUsersPage({
             href="/admin/clients"
             className="mb-2 inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground hover:text-brick-600"
           >
-            <ChevronLeft className="h-4 w-4" /> All clients
+            <ChevronLeft className="h-4 w-4" /> All workspaces
           </Link>
           <h2 className="font-display text-[22px] font-semibold leading-tight">
-            {realtor.firstName} {realtor.lastName} · Users
+            {workspace.name} · Members
           </h2>
           <p className="mt-0.5 text-[13.5px] text-muted-foreground">
-            Manage users attached to this realtor account
+            Manage workspace members and invitations
           </p>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button variant="outline" size="sm" asChild>
-            <Link href="/admin/clients">Back to Clients</Link>
+            <Link href="/admin/clients">Back to Workspaces</Link>
           </Button>
         </div>
       </div>
@@ -106,7 +114,7 @@ export default async function RealtorUsersPage({
                     <div>
                       <div>{inv.email}</div>
                       <div className="text-xs text-faint">
-                        Expires {new Date(inv.expiresAt).toLocaleString()}
+                        {inv.role} · expires {new Date(inv.expiresAt).toLocaleString()}
                       </div>
                     </div>
                   </li>
@@ -115,14 +123,18 @@ export default async function RealtorUsersPage({
             )}
           </div>
           <div className="rounded-2xl border border-border bg-card p-4.5">
-            <h3 className="font-display mb-3 text-[15px] font-semibold">Active users</h3>
-            {realtor.users.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No users yet.</p>
+            <h3 className="font-display mb-3 text-[15px] font-semibold">Active members</h3>
+            {workspace.memberships.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No members yet.</p>
             ) : (
               <ul className="space-y-2 text-sm">
-                {realtor.users.map((u) => (
-                  <li key={u.id} className="border-b border-border pb-2 last:border-b-0 last:pb-0">
-                    {u.email}
+                {workspace.memberships.map((m) => (
+                  <li
+                    key={m.id}
+                    className="flex items-center justify-between border-b border-border pb-2 last:border-b-0 last:pb-0"
+                  >
+                    <span>{m.user.email}</span>
+                    <span className="text-xs text-faint">{m.role}</span>
                   </li>
                 ))}
               </ul>

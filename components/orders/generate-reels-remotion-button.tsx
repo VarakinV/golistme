@@ -4,15 +4,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, Sparkles } from 'lucide-react';
 import { RemotionMusicPicker } from '@/components/orders/remotion-music-picker';
+import { requestPermission } from '@/lib/ui/feedback';
 
 export function GenerateReelsRemotionButton({
   orderId,
   onStarted,
   refreshToken = 0,
+  allowed = true,
 }: {
   orderId: string;
   onStarted?: () => void;
   refreshToken?: number;
+  allowed?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -57,6 +60,10 @@ export function GenerateReelsRemotionButton({
   }, [order, sourcesCount]);
 
   async function handleGenerate() {
+    if (!allowed) {
+      requestPermission('generate reels');
+      return;
+    }
     try {
       setSubmitting(true);
       setError('');
@@ -100,7 +107,7 @@ export function GenerateReelsRemotionButton({
     );
   }
 
-  const disabled = missing.length > 0 || submitting;
+  const disabled = allowed && (missing.length > 0 || submitting);
   const title = disabled
     ? `Missing: ${missing.join(', ')}`
     : 'Generate reels with Remotion';

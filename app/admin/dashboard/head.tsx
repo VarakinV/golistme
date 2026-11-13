@@ -1,7 +1,7 @@
 export default function Head() {
   return (
     <>
-      <title>Media Portal — Admin Dashboard</title>
+      <title>GoList.me — Admin Dashboard</title>
     </>
   );
 }

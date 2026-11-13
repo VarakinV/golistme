@@ -14,16 +14,16 @@ export const metadata: Metadata = {
     'Deliver stunning property photos, videos, floor plans, and virtual tours to your clients with one secure link. Built for real estate photographers and agents.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'Photos4RealEstate Media Portal',
+    title: 'GoList.me Media Portal',
     description:
       'Upload once. Deliver everywhere. Photos, videos, floor plans, and more in a single, professional portal.',
     url: '/',
-    siteName: 'Photos4RealEstate',
+    siteName: 'GoList.me',
     images: ['/Map-Pin-Logo.svg'],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Photos4RealEstate Media Portal',
+    title: 'GoList.me Media Portal',
     description:
       'Fast, professional real estate media delivery. One secure link for everything.',
     images: ['/Map-Pin-Logo.svg'],
@@ -75,7 +75,7 @@ export default function Home() {
               Built for Photographers. Loved by Realtors.
             </h2>
             <p className="mt-4 text-gray-700">
-              At Photos4RealEstate, we help real estate photographers streamline
+              At GoList.me, we help real estate photographers streamline
               their workflow. Upload property photos, videos, floor plans, and
               attachments in one place, and deliver them to agents instantly
               through a branded, mobile-friendly delivery page.
@@ -142,7 +142,7 @@ export default function Home() {
           </h2>
           <p className="mt-2 text-sm sm:text-base text-white/90">
             Join hundreds of real estate professionals who trust
-            Photos4RealEstate for their media delivery needs.
+            GoList.me for their media delivery needs.
           </p>
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
             <Link
@@ -172,7 +172,7 @@ export default function Home() {
                 <div className="relative h-6 w-6 shrink-0 mt-0.5">
                   <Image
                     src="/Map-Pin-Logo.svg"
-                    alt="Photos4RealEstate logo"
+                    alt="GoList.me logo"
                     fill
                     className="object-contain"
                     sizes="24px"
@@ -232,7 +232,7 @@ export default function Home() {
           {/* SEO copy */}
           <div className="text-sm text-gray-300">
             <p>
-              Photos4RealEstate is a real estate media delivery platform
+              GoList.me is a real estate media delivery platform
               designed for photographers and real estate agents. From
               professional real estate photography and drone video tours to
               floor plans and virtual tours, our system makes property marketing
@@ -248,7 +248,7 @@ export default function Home() {
 
           {/* Copyright */}
           <div className="mt-8 text-center text-xs text-gray-500">
-            © {new Date().getFullYear()} Photos4RealEstate. All rights reserved.
+            © {new Date().getFullYear()} GoList.me. All rights reserved.
           </div>
         </div>
       </footer>
@@ -260,10 +260,10 @@ export default function Home() {
           __html: JSON.stringify({
             '@context': 'https://schema.org',
             '@type': 'WebSite',
-            name: 'Photos4RealEstate Media Portal',
+            name: 'GoList.me Media Portal',
             url:
               (typeof window !== 'undefined' ? window.location.origin : '') ||
-              'https://app.photos4realestate.ca',
+              'https://golist.me',
             potentialAction: {
               '@type': 'SearchAction',
               target: '/search?query={search_term_string}',

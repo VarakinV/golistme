@@ -20,7 +20,11 @@ const magicSchema = z.object({
   email: z.string().email('Invalid email address'),
 });
 
-export default function MagicLinkLogin() {
+export default function MagicLinkLogin({
+  callbackUrl = '/portal?loginSuccess=1',
+}: {
+  callbackUrl?: string;
+}) {
   const [isSending, setIsSending] = useState(false);
   const [sent, setSent] = useState<null | { email: string }>(null);
   const form = useForm<z.infer<typeof magicSchema>>({
@@ -38,12 +42,19 @@ export default function MagicLinkLogin() {
           token
         )}; Max-Age=120; Path=/`;
       }
-      await signIn('email', {
-        email: values.email,
+      const result = await signIn('email', {
+        email: values.email.trim().toLowerCase(),
         redirect: false,
-        callbackUrl: '/portal?loginSuccess=1',
+        callbackUrl,
       });
-      setSent({ email: values.email });
+      if (result?.error) {
+        form.setError('email', {
+          type: 'manual',
+          message: 'Unable to send a sign-in link to this email.',
+        });
+        return;
+      }
+      setSent({ email: values.email.trim().toLowerCase() });
     } catch (e) {
       form.setError('email', {
         type: 'manual',
@@ -69,6 +80,10 @@ export default function MagicLinkLogin() {
                   <Input
                     type="email"
                     placeholder="you@example.com"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     {...field}
                     disabled={isSending}
                   />

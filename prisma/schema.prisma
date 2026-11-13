@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// GoList.me Prisma schema
+// Standalone product. Do not import models or conventions from Photos 4 Real Estate.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,52 +11,99 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+enum PlatformRole {
+  SUPERADMIN
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  DELETED
+}
+
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  id            String     @id @default(cuid())
+  email         String     @unique
   password      String
   name          String?
   image         String?
   emailVerified DateTime?
+  avatarUrl     String?
 
-  avatarUrl String?
-  adminSlug String? @unique
+  platformRole PlatformRole @default(USER)
+  status       UserStatus   @default(ACTIVE)
 
-  role               Role                 @default(REALTOR)
-  realtorId          String?
-  realtor            Realtor?             @relation("RealtorMembers", fields: [realtorId], references: [id])
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  createdRealtors    Realtor[]            @relation("RealtorCreatedBy")
-  invitesSent        Invitation[]         @relation("InvitesBy")
-  PasswordResetToken PasswordResetToken[]
+  // Remembers the workspace the user last worked in (for login and switching).
+  lastActiveWorkspaceId String?
 
-  // Admin ↔ Realtors assignments (as Admin)
-  managedRealtors       RealtorAssignment[]     @relation("AdminRealtors")
-  ServiceCategory       ServiceCategory[]
-  Service               Service[]
-  Tax                   Tax[]
-  Booking               Booking[]
-  AdminAvailabilityRule AdminAvailabilityRule[]
-  BlackoutDate          BlackoutDate[]
-  CalendarAccount       CalendarAccount[]
-  AdminBookingSettings  AdminBookingSettings?
-  AdminTravelFlatFeeTown AdminTravelFlatFeeTown[]
-  PromoCode             PromoCode[]
-  Account               Account[]
-  Session               Session[]
-  qrCodesCreated        QRCode[]            @relation("QRCodesCreatedBy")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships      WorkspaceMembership[]
+  ownedWorkspaces  RealtorWorkspace[]    @relation("WorkspaceOwner")
+  invitationsSent  Invitation[]          @relation("InvitesBy")
+  realtorProfiles  RealtorProfile[]      @relation("ProfileUser")
+  creditEntries    CreditTransaction[]
+  paymentsMade     Payment[]             @relation("PaymentInitiatedBy")
+  passwordResets   PasswordResetToken[]
+  emailVerifications EmailVerificationToken[]
+  qrCodesCreated   QRCode[]              @relation("QRCodesCreatedBy")
+  accounts         Account[]
+  sessions         Session[]
 }
 
-model Realtor {
-  id           String       @id @default(cuid())
-  firstName    String
-  lastName     String
-  email        String       @unique
+// ---------------------------------------------------------------------------
+// Workspace (customer and billing boundary)
+// ---------------------------------------------------------------------------
+
+enum WorkspaceStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum WorkspaceRole {
+  OWNER
+  ASSISTANT
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  REMOVED
+}
+
+enum Permission {
+  MANAGE_LISTINGS
+  GENERATE_MARKETING
+  VIEW_LEADS
+  VIEW_ANALYTICS
+  PURCHASE_CREDITS
+}
+
+model RealtorWorkspace {
+  id     String @id @default(cuid())
+  slug   String @unique
+  name   String
+  status WorkspaceStatus @default(ACTIVE)
+
+  // Primary realtor / business profile used on generated assets.
+  firstName    String?
+  lastName     String?
+  email        String?
   phone        String?
-  headshot     String? // S3 URL for headshot image
+  headshot     String?
   companyName  String?
   companyLogo  String?
+  brandColor   String?
+  websiteUrl   String?
   facebookUrl  String?
   linkedinUrl  String?
   instagramUrl String?
@@ -65,51 +112,149 @@ model Realtor {
   pinterestUrl String?
   vimeoUrl     String?
   tiktokUrl    String?
-  points       Int          @default(0)
-  userId       String // Admin who created this realtor
-  user         User         @relation("RealtorCreatedBy", fields: [userId], references: [id])
-  users        User[]       @relation("RealtorMembers") // Users (REALTOR role) linked to this Realtor
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  orders       Order[]
-  invites      Invitation[] @relation("RealtorInvites")
 
-  // Realtors ↔ Admins assignments (as Realtor)
-  assignedAdmins    RealtorAssignment[] @relation("RealtorAdmins")
-  Booking           Booking[]
-  pointTransactions PointTransaction[]
+  ownerUserId String
+  owner       User   @relation("WorkspaceOwner", fields: [ownerUserId], references: [id])
+
+  stripeCustomerId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships        WorkspaceMembership[]
+  invitations        Invitation[]
+  listings           Listing[]
+  inquiries          PropertyInquiry[]
+  realtorProfiles    RealtorProfile[]
+  creditBalance      WorkspaceCreditBalance?
+  creditTransactions CreditTransaction[]
+  payments           Payment[]
+  generationJobs     GenerationJob[]
+  sellerReportLinks  SellerReportLink[]
+
+  @@index([ownerUserId])
+  @@index([status])
 }
 
-model PointTransaction {
-  id        String   @id @default(cuid())
-  realtorId String
-  realtor   Realtor  @relation(fields: [realtorId], references: [id], onDelete: Cascade)
-  amount    Int      // positive = added, negative = redeemed
-  reason    String
-  createdBy String?  // admin user id who created this transaction
+model WorkspaceMembership {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role        WorkspaceRole    @default(ASSISTANT)
+  permissions Permission[]     @default([])
+  status      MembershipStatus @default(ACTIVE)
+
+  invitedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([workspaceId, userId])
+  @@index([userId, status])
+  @@index([workspaceId, status])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model Invitation {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  email       String
+  role        WorkspaceRole @default(ASSISTANT)
+  permissions Permission[]  @default([])
+  tokenHash   String        @unique
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+
+  invitedById String
+  invitedBy   User   @relation("InvitesBy", fields: [invitedById], references: [id])
+
   createdAt DateTime @default(now())
 
-  @@index([realtorId, createdAt])
+  @@index([workspaceId, status])
+  @@index([email, status])
 }
 
-model RealtorAssignment {
-  id        String   @id @default(cuid())
-  adminId   String
-  realtorId String
+// Display-only co-realtor profile. Never grants access to a workspace or listing.
+model RealtorProfile {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation("ProfileUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  headshot     String?
+  companyName  String?
+  companyLogo  String?
+  websiteUrl   String?
+  facebookUrl  String?
+  linkedinUrl  String?
+  instagramUrl String?
+  youtubeUrl   String?
+  twitterUrl   String?
+  pinterestUrl String?
+  vimeoUrl     String?
+  tiktokUrl    String?
+
+  isPrimary Boolean @default(false)
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  admin   User    @relation("AdminRealtors", fields: [adminId], references: [id])
-  realtor Realtor @relation("RealtorAdmins", fields: [realtorId], references: [id])
+  listings ListingCoRealtor[]
 
-  @@unique([adminId, realtorId])
+  @@index([workspaceId])
 }
 
-model Order {
-  id        String      @id @default(cuid())
+model ListingCoRealtor {
+  id               String         @id @default(cuid())
+  listingId        String
+  listing          Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  realtorProfileId String
+  realtorProfile   RealtorProfile @relation(fields: [realtorProfileId], references: [id], onDelete: Cascade)
+  sortOrder        Int            @default(0)
+
+  @@unique([listingId, realtorProfileId])
+  @@index([realtorProfileId])
+}
+
+// ---------------------------------------------------------------------------
+// Listings
+// ---------------------------------------------------------------------------
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  SOLD
+}
+
+model Listing {
+  id        String           @id @default(cuid())
+  // The workspace id is stored in realtorId to keep existing queries working.
   realtorId String
-  realtor   Realtor     @relation(fields: [realtorId], references: [id])
-  slug      String      @unique
-  status    OrderStatus @default(DRAFT)
+  realtor   RealtorWorkspace @relation(fields: [realtorId], references: [id], onDelete: Cascade)
+
+  slug   String        @unique
+  status ListingStatus @default(DRAFT)
+
+  publishedAt DateTime?
+  soldAt      DateTime?
+  archivedAt  DateTime?
 
   // Property info
   propertyAddress          String
@@ -127,17 +272,14 @@ model Order {
   propertyCityOverride       String?
   propertyPostalCodeOverride String?
 
-  propertySize       Int?
-  yearBuilt          Int?
-  mlsNumber          String?
-  listPrice          Int?
-  bedrooms           String?
-  bathrooms          String?
-  featuresText       String?
-  description        String?
-  appliedPromoCodeId String?
-  discountCents      Int        @default(0)
-  appliedPromoCode   PromoCode? @relation(fields: [appliedPromoCodeId], references: [id])
+  propertySize Int?
+  yearBuilt    Int?
+  mlsNumber    String?
+  listPrice    Int?
+  bedrooms     String?
+  bathrooms    String?
+  featuresText String?
+  description  String?
 
   // Media relations
   photos        Photo[]
@@ -151,21 +293,28 @@ model Order {
   reelSources   OrderReelSourceImage[]
   flyers        OrderFlyer[]
   socialPosts   OrderSocialPost[]
-  aiReels       OrderAiReel[]
   qrAssignments QRAssignment[]
+  coRealtors    ListingCoRealtor[]
+  generationJobs GenerationJob[]
+  sellerReportLinks SellerReportLink[]
+  analyticsEvents   AnalyticsEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([realtorId, status])
+  @@index([status, publishedAt])
+  @@index([createdAt])
 }
 
 model Photo {
-  id        String   @id @default(cuid())
-  orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
-  url       String // original S3 URL
-  urlMls    String? // resized MLS version
+  id      String  @id @default(cuid())
+  orderId String
+  order   Listing @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  url     String
+  urlMls  String?
   filename  String
-  sortOrder Int      @default(0)
+  sortOrder Int     @default(0)
   createdAt DateTime @default(now())
 
   @@index([orderId, sortOrder])
@@ -174,68 +323,145 @@ model Photo {
 model Video {
   id        String   @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
+  order     Listing  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   url       String
   filename  String
   createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 model FloorPlan {
   id        String   @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
+  order     Listing  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   url       String
   filename  String
   createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 model Attachment {
   id        String   @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
+  order     Listing  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   url       String
   filename  String
   createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 model Embed {
   id        String   @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
+  order     Listing  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   title     String
   embedUrl  String
   createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+// ---------------------------------------------------------------------------
+// Generated assets
+// ---------------------------------------------------------------------------
+
+enum ReelStatus {
+  QUEUED
+  RENDERING
+  COMPLETE
+  FAILED
+  CANCELLED
+}
+
+enum AssetType {
+  REEL
+  SLIDESHOW
+  FLYER
+  SOCIAL_POST
+  VIDEO
+  QR_PRINTABLE
+  PAGE_IMAGE
+}
+
+model GenerationJob {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  orderId String?
+  order   Listing? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  assetType AssetType
+  provider  String    @default("remotion")
+  status    ReelStatus @default(QUEUED)
+
+  costCredits Int     @default(0)
+  attempt     Int     @default(1)
+  externalId  String?
+  error       String?
+  outputUrl   String?
+
+  idempotencyKey String @unique
+
+  createdByUserId String?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  reels        OrderReel[]
+  flyers       OrderFlyer[]
+  socialPosts  OrderSocialPost[]
+  creditEntries CreditTransaction[]
+
+  @@index([workspaceId, status])
+  @@index([orderId])
+  @@index([assetType, status])
 }
 
 model OrderReel {
-  id           String          @id @default(cuid())
-  orderId      String
-  order        Order           @relation(fields: [orderId], references: [id])
-  variantKey   String
-  provider     String
-  renderId     String
-  status       ReelStatus
-  url          String?
-  thumbnail    String?
-  width        Int?
-  height       Int?
-  error        String?
+  id      String  @id @default(cuid())
+  orderId String
+  order   Listing @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  variantKey String
+  provider   String
+  renderId   String
+  status     ReelStatus
+  url        String?
+  thumbnail  String?
+  width      Int?
+  height     Int?
+  error      String?
+
   musicTrackId String?
   musicTrack   VideoMusicTrack? @relation(fields: [musicTrackId], references: [id])
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+
+  jobId      String?
+  job        GenerationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  isCurrent   Boolean  @default(true)
+  version     Int      @default(1)
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orderId, status])
   @@index([musicTrackId])
+  @@index([jobId])
 }
 
 model VideoMusicTrack {
   id        String           @id @default(cuid())
   name      String
   fileUrl   String
-  duration  Float            // seconds
+  duration  Float
   genre     String?
-  mood      String?          // "upbeat" | "elegant" | "calm" ...
+  mood      String?
   isActive  Boolean          @default(true)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
@@ -269,7 +495,7 @@ model VideoTemplate {
 model OrderReelSourceImage {
   id        String   @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
+  order     Listing  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   url       String
   filename  String
   sortOrder Int      @default(0)
@@ -279,9 +505,10 @@ model OrderReelSourceImage {
 }
 
 model OrderFlyer {
-  id         String     @id @default(cuid())
-  orderId    String
-  order      Order      @relation(fields: [orderId], references: [id])
+  id      String  @id @default(cuid())
+  orderId String
+  order   Listing @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
   variantKey String
   status     ReelStatus
   url        String?
@@ -289,10 +516,18 @@ model OrderFlyer {
   pageWidth  Int?
   pageHeight Int?
   error      String?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+
+  jobId      String?
+  job        GenerationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  isCurrent   Boolean  @default(true)
+  version     Int      @default(1)
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orderId, status])
+  @@index([jobId])
 }
 
 model SocialPostTemplate {
@@ -301,7 +536,7 @@ model SocialPostTemplate {
   status      String   @default("draft")
   name        String
   description String?
-  label       String? // headline shown on the post, e.g. "COMING SOON"
+  label       String?
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -310,351 +545,280 @@ model SocialPostTemplate {
 }
 
 model OrderSocialPost {
-  id         String     @id @default(cuid())
-  orderId    String
-  order      Order      @relation(fields: [orderId], references: [id])
+  id      String  @id @default(cuid())
+  orderId String
+  order   Listing @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
   variantKey String
   status     ReelStatus
   url        String?
   width      Int?
   height     Int?
   error      String?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+
+  jobId      String?
+  job        GenerationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  isCurrent   Boolean  @default(true)
+  version     Int      @default(1)
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orderId, status])
   @@index([orderId, variantKey])
+  @@index([jobId])
 }
 
-model Invitation {
-  id          String    @id @default(cuid())
-  email       String
-  realtorId   String?
-  realtor     Realtor?  @relation("RealtorInvites", fields: [realtorId], references: [id])
-  role        Role
-  tokenHash   String
-  expiresAt   DateTime
-  acceptedAt  DateTime?
-  invitedById String
-  invitedBy   User      @relation("InvitesBy", fields: [invitedById], references: [id])
-  createdAt   DateTime  @default(now())
-}
+// ---------------------------------------------------------------------------
+// Public pages, leads, QR tracking
+// ---------------------------------------------------------------------------
 
 model PropertyPage {
-  id            String         @id @default(cuid())
-  orderId       String
-  order         Order          @relation(fields: [orderId], references: [id])
+  id      String  @id @default(cuid())
+  orderId String
+  order   Listing @relation(fields: [orderId], references: [id], onDelete: Cascade)
   template      Int
   urlPath       String
   published     Boolean        @default(true)
   createdAt     DateTime       @default(now())
   qrAssignments QRAssignment[]
+
+  @@index([orderId])
+  @@index([urlPath])
+}
+
+enum LeadSource {
+  WEBSITE
+  QR_CODE
+  BOOK_SHOWING
+  MORTGAGE_CALCULATOR
+  HOME_WORTH
+  SIMILAR_HOMES
 }
 
 model PropertyInquiry {
-  id             String        @id @default(cuid())
-  orderId        String
-  order          Order         @relation(fields: [orderId], references: [id])
-  name           String
-  email          String
-  phone          String?
-  message        String?
-  source         LeadSource    @default(WEBSITE)
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  orderId String
+  order   Listing @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  name    String
+  email   String
+  phone   String?
+  message String?
+  source  LeadSource @default(WEBSITE)
+
   qrAssignmentId String?
   qrAssignment   QRAssignment? @relation(fields: [qrAssignmentId], references: [id])
-  createdAt      DateTime      @default(now())
+
+  createdAt DateTime @default(now())
 
   @@index([qrAssignmentId])
+  @@index([workspaceId, createdAt])
+  @@index([orderId, createdAt])
 }
 
-model PasswordResetToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+model SellerReportLink {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orderId     String
+  order       Listing          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  tokenHash    String    @unique
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  lastViewedAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([orderId])
+  @@index([workspaceId])
 }
 
-enum OrderStatus {
-  DRAFT
-  PUBLISHED
+model AnalyticsEvent {
+  id          String  @id @default(cuid())
+  orderId     String
+  order       Listing @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type        String
+  path        String?
+  sessionHash String?
+  createdAt   DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([type, createdAt])
+}
+
+enum QRCodeStatus {
+  UNASSIGNED
+  ACTIVE
   ARCHIVED
 }
 
-enum Role {
-  SUPERADMIN
-  ADMIN
-  REALTOR
+model QRCode {
+  id              String       @id @default(cuid())
+  seq             Int          @unique @default(autoincrement())
+  displayId       String       @unique
+  status          QRCodeStatus @default(UNASSIGNED)
+  createdByUserId String
+  createdByUser   User         @relation("QRCodesCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  assignments QRAssignment[]
+  printables  QRPrintable[]
+
+  @@index([status])
 }
 
-// Booking system enums and core service models (Milestone 1)
+model QRAssignment {
+  id             String        @id @default(cuid())
+  qrCodeId       String
+  qrCode         QRCode        @relation(fields: [qrCodeId], references: [id])
+  orderId        String
+  order          Listing       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  propertyPageId String?
+  propertyPage   PropertyPage? @relation(fields: [propertyPageId], references: [id])
+  sendWeeklyStats Boolean      @default(true)
+  assignedAt     DateTime      @default(now())
+  unassignedAt   DateTime?
 
-enum BookingStatus {
+  scans QRScanEvent[]
+  leads PropertyInquiry[]
+
+  @@index([qrCodeId, unassignedAt])
+  @@index([orderId])
+}
+
+model QRScanEvent {
+  id           String       @id @default(cuid())
+  assignmentId String
+  assignment   QRAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  scannedAt    DateTime     @default(now())
+  sessionHash  String
+  userAgent    String?
+
+  @@index([assignmentId, scannedAt])
+}
+
+model QRPrintable {
+  id         String     @id @default(cuid())
+  qrCodeId   String
+  qrCode     QRCode     @relation(fields: [qrCodeId], references: [id])
+  variantKey String
+  status     ReelStatus @default(QUEUED)
+  svgUrl     String?
+  pngUrl     String?
+  pdfUrl     String?
+  error      String?
+  createdAt  DateTime   @default(now())
+
+  @@unique([qrCodeId, variantKey])
+  @@index([qrCodeId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Credits and payments (Stripe)
+// ---------------------------------------------------------------------------
+
+enum CreditTransactionType {
+  WELCOME_GRANT
+  PURCHASE
+  REFERRAL_GRANT
+  ADMIN_GRANT
+  GENERATION_RESERVATION
+  GENERATION_DEDUCTION
+  GENERATION_REFUND
+  ADJUSTMENT
+  EXPIRATION
+}
+
+model CreditTransaction {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  type        CreditTransactionType
+  amount      Int
+  description String?
+
+  relatedPaymentId String?
+  payment          Payment? @relation(fields: [relatedPaymentId], references: [id], onDelete: SetNull)
+
+  relatedGenerationJobId String?
+  generationJob          GenerationJob? @relation(fields: [relatedGenerationJobId], references: [id], onDelete: SetNull)
+
+  idempotencyKey String @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([userId])
+  @@index([relatedGenerationJobId])
+}
+
+model WorkspaceCreditBalance {
+  workspaceId String           @id
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  balance     Int              @default(0)
+  updatedAt   DateTime         @updatedAt
+}
+
+enum PaymentStatus {
   PENDING
-  CONFIRMED
+  SUCCEEDED
+  FAILED
+  REFUNDED
   CANCELLED
 }
 
-model ServiceCategory {
-  id          String    @id @default(cuid())
-  adminId     String
-  admin       User      @relation(fields: [adminId], references: [id])
-  name        String
-  slug        String
-  description String?
-  iconUrl     String?
-  iconKey     String?
-  featured    Boolean   @default(false)
-  active      Boolean   @default(true)
-  sortOrder   Int       @default(0)
-  services    Service[]
+model Payment {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   RealtorWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@unique([adminId, slug])
-  @@index([adminId, name])
-  @@index([adminId, sortOrder])
-}
+  initiatedByUserId String
+  initiatedBy        User   @relation("PaymentInitiatedBy", fields: [initiatedByUserId], references: [id])
 
-model Service {
-  id               String             @id @default(cuid())
-  adminId          String
-  admin            User               @relation(fields: [adminId], references: [id])
-  categoryId       String
-  category         ServiceCategory    @relation(fields: [categoryId], references: [id])
-  name             String
-  slug             String
-  description      String?
-  priceCents       Int
-  durationMin      Int
-  bufferBeforeMin  Int                @default(0)
-  bufferAfterMin   Int                @default(0)
-  minSqFt          Int?
-  maxSqFt          Int?
-  isPerSqFt        Boolean            @default(false)
-  minPriceCents    Int?
-  tieredPricing    Json?
-  active           Boolean            @default(true)
-  sortOrder        Int                @default(0)
-  taxes            ServiceTax[]
-  bookingItems     BookingService[]
-  PromoCodeService PromoCodeService[]
+  stripeCheckoutSessionId String? @unique
+  stripePaymentIntentId   String? @unique
 
-  @@unique([adminId, slug])
-  @@index([adminId, sortOrder])
-}
+  amountCents      Int
+  currency         String @default("cad")
+  creditsPurchased Int
 
-model Tax {
-  id       String       @id @default(cuid())
-  adminId  String
-  admin    User         @relation(fields: [adminId], references: [id])
-  name     String
-  rateBps  Int // 5% => 500
-  active   Boolean      @default(true)
-  services ServiceTax[]
+  status PaymentStatus @default(PENDING)
 
-  @@unique([adminId, name])
-  @@index([adminId, active])
-}
-
-model ServiceTax {
-  serviceId String
-  taxId     String
-
-  service Service @relation(fields: [serviceId], references: [id])
-  tax     Tax     @relation(fields: [taxId], references: [id])
-
-  @@id([serviceId, taxId])
-}
-
-// Booking, availability, and integrations (Milestone 1)
-
-model Booking {
-  id        String        @id @default(cuid())
-  adminId   String
-  admin     User          @relation(fields: [adminId], references: [id])
-  realtorId String?
-  realtor   Realtor?      @relation(fields: [realtorId], references: [id])
-  status    BookingStatus @default(PENDING)
-  start     DateTime
-  end       DateTime
-  timeZone  String
-
-  // Property & location
-  propertyAddress          String
-  propertyFormattedAddress String?
-  propertyLat              Float?
-  propertyLng              Float?
-  propertyCity             String?
-  propertyProvince         String?
-  propertyPostalCode       String?
-  propertyCountry          String?
-  propertyPlaceId          String?
-  propertySizeSqFt         Int?
-  unitNumber               String?
-  basementMeasure          Boolean  @default(false)
-  basementPhoto            Boolean  @default(false)
-  garageMeasure            Boolean  @default(false)
-  garagePhoto              Boolean  @default(false)
-
-  // Contact
-  contactName  String
-  contactEmail String
-  contactPhone String?
-  notes        String?
-
-  // Pricing snapshot
-  subtotalCents      Int        @default(0)
-  taxCents           Int        @default(0)
-  totalCents         Int        @default(0)
-  // Promo code application
-  appliedPromoCodeId String?
-  appliedPromoCode   PromoCode? @relation(fields: [appliedPromoCodeId], references: [id])
-  promoCodeCode      String?
-  discountCents      Int        @default(0)
-
-  // Travel fee snapshot
-  travelDistanceMeters   Int?
-  travelDurationSeconds  Int?
-  travelFeeCents         Int        @default(0)
-  travelRule             String?
-  travelCalculationText  String?
-  travelCalculatedAt     DateTime?
-
-  // Calendar integration
-  googleEventId String?
-
-  // GHL booking reminder (sent ~24h before start by the booking-reminders cron)
-  reminderSentAt   DateTime? // when the GHL reminder push succeeded
-  reminderForStart DateTime? // the booking.start the last sent reminder corresponded to
-
-  items     BookingService[]
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-
-  @@index([adminId, start, end])
-  @@index([realtorId])
-  @@index([status, start])
-}
-
-model BookingService {
-  id        String @id @default(cuid())
-  bookingId String
-  serviceId String
-
-  booking Booking @relation(fields: [bookingId], references: [id])
-  service Service @relation(fields: [serviceId], references: [id])
-
-  // Snapshots for historical accuracy
-  serviceName    String
-  unitPriceCents Int
-  quantity       Int     @default(1)
-  quantityLabel  String?
-  taxCents       Int    @default(0)
-}
-
-model AdminAvailabilityRule {
-  id           String  @id @default(cuid())
-  adminId      String
-  admin        User    @relation(fields: [adminId], references: [id])
-  dayOfWeek    Int // 0=Sun ... 6=Sat
-  startMinutes Int // minutes since midnight
-  endMinutes   Int
-  timeZone     String
-  active       Boolean @default(true)
-
-  @@index([adminId, dayOfWeek])
-}
-
-model BlackoutDate {
-  id      String   @id @default(cuid())
-  adminId String
-  admin   User     @relation(fields: [adminId], references: [id])
-  start   DateTime
-  end     DateTime
-  reason  String?
-
-  @@index([adminId, start, end])
-}
-
-model CalendarAccount {
-  id           String    @id @default(cuid())
-  adminId      String
-  admin        User      @relation(fields: [adminId], references: [id])
-  provider     String    @default("google")
-  accessToken  String?
-  refreshToken String?
-  expiresAt    DateTime?
-
-  @@unique([adminId, provider])
-}
-
-// Promo codes
-
-enum PromoDiscountType {
-  PERCENT
-  AMOUNT
-}
-
-model PromoCode {
-  id                 String             @id @default(cuid())
-  adminId            String
-  admin              User               @relation(fields: [adminId], references: [id])
-  displayName        String
-  code               String
-  startDate          DateTime?
-  endDate            DateTime?
-  maxUsesPerRealtor  Int?
-  maxUsesTotal       Int?
-  discountType       PromoDiscountType
-  discountRateBps    Int?
-  discountValueCents Int?
-  active             Boolean            @default(true)
-  services           PromoCodeService[]
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  Order              Order[]
-  Booking            Booking[]
-
-  @@unique([adminId, code])
-}
-
-model PromoCodeService {
-  promoCodeId String
-  serviceId   String
-  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id])
-  service     Service   @relation(fields: [serviceId], references: [id])
-
-  @@id([promoCodeId, serviceId])
-}
-
-model AdminBookingSettings {
-  id                    String  @id @default(cuid())
-  adminId               String  @unique
-  admin                 User    @relation(fields: [adminId], references: [id])
-  timeZone              String
-  leadTimeMin           Int     @default(0)
-  maxAdvanceDays        Int     @default(60)
-  defaultBufferMin      Int     @default(0)
-  googleCalendarId      String?
-  travelFreeRadiusKm    Float   @default(35)
-  travelPerKmRateCents  Int     @default(85)
-}
-
-model AdminTravelFlatFeeTown {
-  id        String   @id @default(cuid())
-  adminId   String
-  admin     User     @relation(fields: [adminId], references: [id])
-  cityName  String
-  feeCents  Int
-  active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([adminId])
-  @@unique([adminId, cityName])
+  creditTransactions CreditTransaction[]
+
+  @@index([workspaceId, status])
+  @@index([status, createdAt])
 }
 
-// Auth.js Prisma Adapter models
+model StripeWebhookEvent {
+  id            String    @id @default(cuid())
+  stripeEventId String    @unique
+  type          String
+  status        String    @default("received")
+  error         String?
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([type, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js adapter models
+// ---------------------------------------------------------------------------
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -691,358 +855,23 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-enum ReelStatus {
-  QUEUED
-  RENDERING
-  COMPLETE
-  FAILED
-}
-
-enum QRCodeStatus {
-  UNASSIGNED
-  ACTIVE
-  ARCHIVED
-}
-
-enum LeadSource {
-  WEBSITE
-  QR_CODE
-}
-
-enum AiReelStepStatus {
-  PENDING
-  PROCESSING
-  COMPLETE
-  FAILED
-}
-
-model OrderAiReel {
-  id             String   @id @default(cuid())
-  orderId        String
-  order          Order    @relation(fields: [orderId], references: [id])
-
-  // Step 0: Source
-  sourceImageUrl String   // uploaded daytime photo
-
-  // Step 1: Kie.ai image transform (nano-banana-pro → twilight)
-  kieImageTaskId   String?
-  kieImageStatus   AiReelStepStatus @default(PENDING)
-  twilightImageUrl String?
-
-  // Step 2: Kie.ai Veo3 video (day→twilight transition)
-  kieVideoTaskId String?
-  kieVideoStatus AiReelStepStatus @default(PENDING)
-  videoUrl       String?
-
-  // Step 3: JSON2Video final reel
-  j2vRenderId String?
-  j2vStatus   AiReelStepStatus @default(PENDING)
-  finalUrl    String?   // completed reel URL
-  thumbnail   String?
-  width       Int?      @default(1080)
-  height      Int?      @default(1920)
-
-  error     String?
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([orderId])
-  @@index([kieImageTaskId])
-  @@index([kieVideoTaskId])
-  @@index([j2vRenderId])
+  expiresAt DateTime
 }
 
-// Free Reels funnel models
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
 
-enum FreeLeadStatus {
-  DRAFT
-  GENERATING
-  COMPLETE
-  FAILED
-}
-
-model FreeReelsLead {
-  id        String  @id @default(cuid())
-  firstName String
-  lastName  String
-  email     String
-  phone     String?
-
-  // Property details
-  propertyAddress    String
-  propertyCity       String?
-  propertyPostalCode String?
-  bedrooms           String?
-  bathrooms          String?
-
-  // Assets
-  headshotUrl   String?
-  agencyLogoUrl String?
-
-  // Status & integrations
-  status       FreeLeadStatus @default(DRAFT)
-  ghlContactId String?
-
-  // Relations
-  images FreeReelsSourceImage[]
-  reels  FreeReel[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model FreeReelsSourceImage {
-  id        String        @id @default(cuid())
-  leadId    String
-  lead      FreeReelsLead @relation(fields: [leadId], references: [id])
-  url       String
-  filename  String?
-  sortOrder Int           @default(0)
-  createdAt DateTime      @default(now())
-
-  @@index([leadId, sortOrder])
-}
-
-model FreeReel {
-  id         String        @id @default(cuid())
-  leadId     String
-  lead       FreeReelsLead @relation(fields: [leadId], references: [id])
-  variantKey String
-  provider   String
-  renderId   String
-  status     ReelStatus
-  url        String?
-  thumbnail  String?
-  width      Int?
-  height     Int?
-  error      String?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-
-  @@unique([provider, renderId])
-  @@index([leadId, status])
-}
-
-// Free Flyers funnel models
-model FreeFlyersLead {
-  id        String  @id @default(cuid())
-  firstName String
-  lastName  String
-  email     String
-  phone     String?
-
-  // Property details
-  propertyAddress    String
-  propertyCity       String?
-  propertyPostalCode String?
-  bedrooms           String?
-  bathrooms          String?
-  sizeSqFt           String?
-  propertySiteUrl    String?
-
-  // Assets
-  headshotUrl   String?
-  agencyLogoUrl String?
-
-  // Status & integrations
-  status       FreeLeadStatus @default(DRAFT)
-  ghlContactId String?
-
-  // Relations
-  images FreeFlyersSourceImage[]
-  flyers FreeFlyer[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model FreeFlyersSourceImage {
-  id        String         @id @default(cuid())
-  leadId    String
-  lead      FreeFlyersLead @relation(fields: [leadId], references: [id])
-  url       String
-  filename  String?
-  sortOrder Int            @default(0)
-  createdAt DateTime       @default(now())
-
-  @@index([leadId, sortOrder])
-}
-
-model FreeFlyer {
-  id         String         @id @default(cuid())
-  leadId     String
-  lead       FreeFlyersLead @relation(fields: [leadId], references: [id])
-  variantKey String
-  status     ReelStatus
-  url        String?
-  previewUrl String?
-  pageWidth  Int?
-  pageHeight Int?
-  error      String?
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
-
-  @@index([leadId, status])
-}
-
-	// Free Slideshow funnel models
-	model FreeSlideshowLead {
-	  id        String  @id @default(cuid())
-	  firstName String
-	  lastName  String
-	  email     String
-	  phone     String?
-
-	  // Property details
-	  propertyAddress    String
-	  propertyCity       String?
-	  propertyPostalCode String?
-	  bedrooms           String?
-	  bathrooms          String?
-	  sizeSqFt           String?
-
-	  // Assets
-	  headshotUrl   String?
-	  agencyLogoUrl String?
-
-	  // Status & integrations
-	  status       FreeLeadStatus @default(DRAFT)
-	  ghlContactId String?
-
-	  // Relations
-	  images     FreeSlideshowSourceImage[]
-	  slideshows FreeSlideshow[]
-
-	  createdAt DateTime @default(now())
-	  updatedAt DateTime @updatedAt
-	}
-
-	model FreeSlideshowSourceImage {
-	  id        String             @id @default(cuid())
-	  leadId    String
-	  lead      FreeSlideshowLead  @relation(fields: [leadId], references: [id])
-	  url       String
-	  filename  String?
-	  sortOrder Int                @default(0)
-	  createdAt DateTime           @default(now())
-
-	  @@index([leadId, sortOrder])
-	}
-
-	model FreeSlideshow {
-	  id         String             @id @default(cuid())
-	  leadId     String
-	  lead       FreeSlideshowLead  @relation(fields: [leadId], references: [id])
-	  variantKey String
-	  provider   String
-	  renderId   String
-	  status     ReelStatus
-	  url        String?
-	  thumbnail  String?
-	  width      Int?
-	  height     Int?
-	  error      String?
-	  createdAt  DateTime           @default(now())
-	  updatedAt  DateTime           @updatedAt
-
-	  @@unique([provider, renderId])
-	  @@index([leadId, status])
-	}
-	
-	// Free QR funnel models
-model FreeQrLead {
-  id        String  @id @default(cuid())
-  firstName String?
-  lastName  String?
-  email     String?
-  phone     String?
-
-  destinationUrl String
-
-  status       FreeLeadStatus @default(COMPLETE)
-  ghlContactId String?
-
-  qrCodes FreeQr[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model FreeQr {
-  id     String     @id @default(cuid())
-  leadId String
-  lead   FreeQrLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  variantKey String
-  status     ReelStatus @default(COMPLETE)
-  svgUrl     String?
-  pngUrl     String?
-  pdfUrl     String?
-  createdAt  DateTime   @default(now())
-
-  @@unique([leadId, variantKey])
-  @@index([leadId, status])
-}
-
-// QR Code Lead Capture models
-model QRCode {
-  id              String       @id @default(cuid())
-  seq             Int          @unique @default(autoincrement())
-  displayId       String       @unique
-  status          QRCodeStatus @default(UNASSIGNED)
-  createdByUserId String
-  createdByUser   User         @relation("QRCodesCreatedBy", fields: [createdByUserId], references: [id])
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-
-  assignments QRAssignment[]
-  printables  QRPrintable[]
-
-  @@index([status])
-}
-
-model QRAssignment {
-  id              String        @id @default(cuid())
-  qrCodeId        String
-  qrCode          QRCode        @relation(fields: [qrCodeId], references: [id])
-  orderId         String
-  order           Order         @relation(fields: [orderId], references: [id])
-  propertyPageId  String?
-  propertyPage    PropertyPage? @relation(fields: [propertyPageId], references: [id])
-  sendWeeklyStats Boolean       @default(true)
-  assignedAt      DateTime      @default(now())
-  unassignedAt    DateTime?
-
-  scans QRScanEvent[]
-  leads PropertyInquiry[]
-
-  @@index([qrCodeId, unassignedAt])
-  @@index([orderId])
-}
-
-model QRScanEvent {
-  id           String       @id @default(cuid())
-  assignmentId String
-  assignment   QRAssignment @relation(fields: [assignmentId], references: [id])
-  scannedAt    DateTime     @default(now())
-  sessionHash  String
-  userAgent    String?
-
-  @@index([assignmentId, scannedAt])
-}
-
-model QRPrintable {
-  id         String     @id @default(cuid())
-  qrCodeId   String
-  qrCode     QRCode     @relation(fields: [qrCodeId], references: [id])
-  variantKey String
-  status     ReelStatus @default(QUEUED)
-  svgUrl     String?
-  pngUrl     String?
-  pdfUrl     String?
-  error      String?
-  createdAt  DateTime   @default(now())
-
-  @@unique([qrCodeId, variantKey])
-  @@index([qrCodeId, status])
+  @@index([userId])
 }

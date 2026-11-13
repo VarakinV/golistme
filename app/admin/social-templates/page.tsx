@@ -164,7 +164,7 @@ export default function SocialTemplatesPage() {
           </ul>
         </Card>
       </div>
-      <Toaster />
+      <Toaster richColors />
     </div>
   );
 }

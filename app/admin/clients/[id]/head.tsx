@@ -1,7 +1,7 @@
 export default function Head() {
   return (
     <>
-      <title>Media Portal — Client Details</title>
+      <title>GoList.me — Client Details</title>
     </>
   );
 }

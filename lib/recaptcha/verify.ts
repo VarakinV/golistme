@@ -12,6 +12,14 @@ export async function verifyRecaptchaServer(
   minScore = Number(process.env.RECAPTCHA_MIN_SCORE || '0.3')
 ): Promise<RecaptchaVerifyResult> {
   try {
+    // Development/testing escape hatch. Never honored in production.
+    if (
+      process.env.NODE_ENV !== "production" &&
+      process.env.RECAPTCHA_DISABLED === "1"
+    ) {
+      return { ok: true };
+    }
+
     const secret = process.env.RECAPTCHA_SECRET_KEY;
     if (!secret) {
       // If not configured, allow request to proceed (dev/preview)

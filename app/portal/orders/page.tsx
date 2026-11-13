@@ -1,11 +1,13 @@
-import { auth } from '@/lib/auth/auth';
+import { getAuthContext, hasPermission, listingWhereForContext } from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from 'lucide-react';
 import { PageHead } from '@/components/admin/ui/page-head';
-import { StatusPill } from '@/components/admin/ui/status-pill';
 import { OrdersSearchInput } from '@/components/portal/orders-search';
+import { ListingStatusSelect } from '@/components/portal/listing-status-select';
+import { DeleteListingButton } from '@/components/portal/delete-listing-button';
+import { CreateListingButton } from '@/components/portal/create-listing-button';
 import { PerPageSelect } from '@/components/portal/per-page-select';
 import { EmptyState } from '@/components/admin/ui/empty-state';
 import { TableShell } from '@/components/admin/ui/table-shell';
@@ -16,14 +18,11 @@ export default async function PortalOrdersPage({
 }: {
   searchParams: Promise<{ page?: string; q?: string; perPage?: string }>;
 }) {
-  const session = await auth();
-  const user = session?.user as any;
-  if (!user) return <div className="p-6">Unauthorized</div>;
+  const ctx = await getAuthContext();
+  if (!ctx) return <div className="p-6">Unauthorized</div>;
+  const canManageListings = hasPermission(ctx, 'MANAGE_LISTINGS');
 
-  const baseWhere =
-    user.role === 'ADMIN' || user.role === 'SUPERADMIN'
-      ? {}
-      : { realtorId: user.realtorId || '__none__' };
+  const baseWhere = listingWhereForContext(ctx);
 
   const { page: pageParam, q: qParam, perPage: perPageParam } = await searchParams;
   const q = (qParam || '').trim();
@@ -41,8 +40,8 @@ export default async function PortalOrdersPage({
   const perPage = allowedPerPage.includes(Number(perPageParam))
     ? Number(perPageParam)
     : 10;
-  const total = await prisma.order.count({ where });
-  const orders = await prisma.order.findMany({
+  const total = await prisma.listing.count({ where });
+  const orders = await prisma.listing.findMany({
     where,
     orderBy: { createdAt: 'desc' },
     skip: (page - 1) * perPage,
@@ -58,14 +57,10 @@ export default async function PortalOrdersPage({
   return (
     <div className="w-full space-y-6">
       <PageHead
-        title="My Orders"
-        subtitle="View and manage your orders"
+        title="My Listings"
+        subtitle="View and manage your listings"
         actions={
-          <Button asChild className="gap-2">
-            <Link href="https://photos4realestate.ca/book-online/" target="_blank">
-              + Book Online
-            </Link>
-          </Button>
+          <CreateListingButton canManage={canManageListings} />
         }
       />
 
@@ -82,11 +77,16 @@ export default async function PortalOrdersPage({
         {orders.length === 0 ? (
           <EmptyState
             icon={PackageOpen}
-            title="No orders found"
+            title={q ? 'No orders found' : 'No listings yet'}
             description={
               q
                 ? 'No orders match your search.'
-                : 'Your orders will appear here after you book your first shoot.'
+                : 'Create your first listing to start building marketing assets.'
+            }
+            action={
+              !q ? (
+                <CreateListingButton canManage={canManageListings} />
+              ) : undefined
             }
           />
         ) : (
@@ -113,21 +113,25 @@ export default async function PortalOrdersPage({
                     </Link>
                   </td>
                   <td data-label="Status">
-                    <StatusPill status={o.status} />
+                    <ListingStatusSelect listingId={o.id} status={o.status} />
                   </td>
                   <td data-label="Actions">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
                       <Button variant="outline" asChild size="sm">
                         <Link href={`/portal/orders/${o.id}`}>
-                          Order Details
+                          {canManageListings ? 'Edit Listing' : 'View Listing'}
                         </Link>
                       </Button>
                       <Button asChild size="sm">
-                        <Link href={`/delivery/${o.id}`} target="_blank">
-                          <ExternalLink className="mr-2 h-4 w-4" /> Delivery
-                          Page
+                        <Link href={`/p/${o.slug}`} target="_blank">
+                          <ExternalLink className="mr-2 h-4 w-4" /> Public Page
                         </Link>
                       </Button>
+                      <DeleteListingButton
+                        listingId={o.id}
+                        listingLabel={o.propertyAddress}
+                        canDelete={canManageListings}
+                      />
                     </div>
                   </td>
                 </tr>

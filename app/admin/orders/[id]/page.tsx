@@ -11,15 +11,13 @@ import { VideosUploader } from '@/components/orders/videos-uploader';
 import { VideosGrid } from '@/components/orders/videos-grid';
 import { FloorplansUploader } from '@/components/orders/floorplans-uploader';
 import { FloorplansGrid } from '@/components/orders/floorplans-grid';
-import { AttachmentsUploader } from '@/components/orders/attachments-uploader';
-import { AttachmentsList } from '@/components/orders/attachments-list';
+
 import { EmbedsForm } from '@/components/orders/embeds-form';
 import { EmbedsList } from '@/components/orders/embeds-list';
 import { RegenerateMlsButton } from '@/components/admin/RegenerateMlsButton';
 import { ReelImagesUploader } from '@/components/orders/reel-images-uploader';
 import { ReelImagesGrid } from '@/components/orders/reel-images-grid';
-import { GenerateReelsButton } from '@/components/orders/generate-reels-button';
-import { GenerateReelsJ2VButton } from '@/components/orders/generate-reels-j2v-button';
+
 import { GenerateReelsRemotionButton } from '@/components/orders/generate-reels-remotion-button';
 import ReelsList from '@/components/orders/reels-list';
 import { GenerateFlyersButton } from '@/components/orders/generate-flyers-button';
@@ -37,7 +35,6 @@ import {
   Film,
   PlaySquare,
   Ruler,
-  Paperclip,
   Link2,
   FileText,
   Sparkles,
@@ -46,8 +43,6 @@ import {
   ChevronLeft,
   ExternalLink,
 } from 'lucide-react';
-import { AiReelUploader } from '@/components/orders/ai-reel-uploader';
-import AiReelsList from '@/components/orders/ai-reels-list';
 import { OrderQRCodes } from '@/components/orders/OrderQRCodes';
 import { StatusPill } from '@/components/admin/ui/status-pill';
 
@@ -57,6 +52,7 @@ interface Order {
     id: string;
     firstName: string;
     lastName: string;
+    name?: string | null;
     email?: string;
     phone?: string;
     companyName?: string;
@@ -82,7 +78,7 @@ interface Order {
   bathrooms?: string | null;
   featuresText?: string | null;
   description?: string | null;
-  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  status: 'DRAFT' | 'ACTIVE' | 'SOLD';
   slug: string;
   createdAt?: string;
 }
@@ -95,24 +91,20 @@ export default function OrderDetailsPage() {
     | 'photos'
     | 'videos'
     | 'reels'
-    | 'aireels'
     | 'flyers'
     | 'social'
     | 'floor'
-    | 'attach'
     | 'embed'
     | 'qr'
   >('property');
   const [photoRefresh, setPhotoRefresh] = useState(0);
   const [videoRefresh, setVideoRefresh] = useState(0);
   const [floorRefresh, setFloorRefresh] = useState(0);
-  const [attachRefresh, setAttachRefresh] = useState(0);
   const [flyerRefresh, setFlyerRefresh] = useState(0);
   const [socialRefresh, setSocialRefresh] = useState(0);
 
   const [embedRefresh, setEmbedRefresh] = useState(0);
   const [reelRefresh, setReelRefresh] = useState(0);
-  const [aiReelRefresh, setAiReelRefresh] = useState(0);
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState<{
     lat: number | null;
@@ -153,11 +145,9 @@ export default function OrderDetailsPage() {
     | 'photos'
     | 'videos'
     | 'reels'
-    | 'aireels'
     | 'flyers'
     | 'social'
     | 'floor'
-    | 'attach'
     | 'embed'
     | 'qr';
   type TabDef = { key: TabKey; label: string; icon: React.ElementType };
@@ -167,12 +157,10 @@ export default function OrderDetailsPage() {
     { key: 'photos', label: 'Photos', icon: Images },
     { key: 'videos', label: 'Videos', icon: Film },
     { key: 'reels', label: 'Reels', icon: PlaySquare },
-    { key: 'aireels', label: 'AI Reels', icon: Sparkles },
     { key: 'flyers', label: 'Flyers', icon: FileText },
     { key: 'social', label: 'SM Posts', icon: Megaphone },
     { key: 'floor', label: 'Floor Plans', icon: Ruler },
-    { key: 'attach', label: 'PDFs', icon: Paperclip },
-    { key: 'embed', label: 'iGUIDE', icon: Link2 },
+    { key: 'embed', label: '3D Virtual Tour', icon: Link2 },
     { key: 'qr', label: 'QR Codes', icon: QrCode },
   ];
 
@@ -198,7 +186,7 @@ export default function OrderDetailsPage() {
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
               {order && (
                 <span>
-                  {order.realtor.firstName} {order.realtor.lastName}
+                  {[order.realtor.firstName, order.realtor.lastName].filter(Boolean).join(' ') || order.realtor.name}
                 </span>
               )}
               {order?.mlsNumber && (
@@ -224,14 +212,14 @@ export default function OrderDetailsPage() {
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {order?.id && <RegenerateMlsButton orderId={order.id} />}
-            {order?.id && order.status === 'PUBLISHED' && (
+            {order?.id && (order.status === 'ACTIVE' || order.status === 'SOLD') && (
               <a
-                href={`/delivery/${order.id}`}
+                href={`/p/${order.slug}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex h-9 items-center gap-2 rounded-full bg-navy-700 px-4 text-[13.5px] font-semibold text-white hover:bg-navy-600 dark:bg-navy-600 dark:hover:bg-[#3a4d85]"
               >
-                <ExternalLink className="h-4 w-4" /> Delivery page
+                <ExternalLink className="h-4 w-4" /> Public page
               </a>
             )}
           </div>
@@ -278,7 +266,7 @@ export default function OrderDetailsPage() {
                 <div>
                   <label className="field-label">Realtor</label>
                   <div className="text-[15px] font-semibold">
-                    {order.realtor.firstName} {order.realtor.lastName}
+                    {[order.realtor.firstName, order.realtor.lastName].filter(Boolean).join(' ') || order.realtor.name}
                   </div>
                 </div>
                 <div>
@@ -583,9 +571,9 @@ export default function OrderDetailsPage() {
                         defaultValue={order.status}
                         className="field"
                       >
-                        <option value="DRAFT">Draft</option>
-                        <option value="PUBLISHED">Published</option>
-                        <option value="ARCHIVED">Archived</option>
+              <option value="DRAFT">Draft</option>
+              <option value="ACTIVE">Active</option>
+              <option value="SOLD">Sold</option>
                       </select>
                     </div>
                     <div className="flex justify-end gap-2 sm:col-span-2">
@@ -646,38 +634,13 @@ export default function OrderDetailsPage() {
                 onUploaded={() => setReelRefresh((n) => n + 1)}
                 refreshToken={reelRefresh}
               />
-              <ReelImagesGrid orderId={order.id} refreshToken={reelRefresh} onDeleted={() => setReelRefresh((n) => n + 1)} />
-              <div className="hidden">
-                <GenerateReelsButton
-                  orderId={order.id}
-                  refreshToken={reelRefresh}
-                  onStarted={() => setReelRefresh((n) => n + 1)}
-                />
-              </div>
-              <div className="hidden">
-                {/* J2V generator disabled for now — may be re-enabled later */}
-                <GenerateReelsJ2VButton
-                  orderId={order.id}
-                  refreshToken={reelRefresh}
-                  onStarted={() => setReelRefresh((n) => n + 1)}
-                />
-              </div>
+<ReelImagesGrid orderId={order.id} refreshToken={reelRefresh} onDeleted={() => setReelRefresh((n) => n + 1)} />
               <GenerateReelsRemotionButton
                 orderId={order.id}
                 refreshToken={reelRefresh}
                 onStarted={() => setReelRefresh((n) => n + 1)}
               />
               <ReelsList orderId={order.id} refreshToken={reelRefresh} />
-            </div>
-          )}
-
-          {tab === 'aireels' && order && (
-            <div className="space-y-4">
-              <AiReelUploader
-                orderId={order.id}
-                onGenerated={() => setAiReelRefresh((n) => n + 1)}
-              />
-              <AiReelsList orderId={order.id} refreshToken={aiReelRefresh} onDeleted={() => setAiReelRefresh((n) => n + 1)} />
             </div>
           )}
 
@@ -726,19 +689,6 @@ export default function OrderDetailsPage() {
             </div>
           )}
 
-          {tab === 'attach' && order && (
-            <div className="space-y-4">
-              <AttachmentsUploader
-                orderId={order.id}
-                onUploaded={() => setAttachRefresh((n) => n + 1)}
-              />
-              <AttachmentsList
-                orderId={order.id}
-                refreshToken={attachRefresh}
-              />
-            </div>
-          )}
-
           {tab === 'embed' && order && (
             <div className="space-y-4">
               <EmbedsForm
@@ -755,7 +705,7 @@ export default function OrderDetailsPage() {
             </div>
           )}
         </div>
-        <Toaster />
+        <Toaster richColors />
       </div>
     </>
   );

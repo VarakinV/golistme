@@ -33,14 +33,9 @@ const formSchema = z.object({
   pinterestUrl: z.string().optional(),
   vimeoUrl: z.string().optional(),
   tiktokUrl: z.string().optional(),
-  points: z
-    .number()
-    .int()
-    .min(0, 'Points must be a non-negative integer')
-    .optional(),
 });
 
-type FormValues = z.infer<typeof formSchema> & { points?: number };
+type FormValues = z.infer<typeof formSchema>;
 
 interface RealtorFormProps {
   realtor?: {
@@ -60,25 +55,19 @@ interface RealtorFormProps {
     pinterestUrl?: string | null;
     vimeoUrl?: string | null;
     tiktokUrl?: string | null;
-    points?: number | null;
   };
-  canEditPoints?: boolean;
   onSuccess?: () => void;
   onCancel?: () => void;
 }
 
 export function RealtorForm({
   realtor,
-  canEditPoints = false,
   onSuccess,
   onCancel,
 }: RealtorFormProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [pointsMode, setPointsMode] = useState<'add' | 'retract' | null>(null);
-  const [pointsDelta, setPointsDelta] = useState('');
-  const [pointsReason, setPointsReason] = useState('');
   const [headshotUrl, setHeadshotUrl] = useState<string | null>(
     realtor?.headshot || null
   );
@@ -111,7 +100,6 @@ export function RealtorForm({
       pinterestUrl: realtor?.pinterestUrl || '',
       vimeoUrl: realtor?.vimeoUrl || '',
       tiktokUrl: realtor?.tiktokUrl || '',
-      points: realtor?.points ?? 0,
     },
   });
 
@@ -289,9 +277,6 @@ export function RealtorForm({
         headshot: headshotUrl,
         companyLogo: companyLogoUrl,
       };
-      if (!canEditPoints) {
-        delete payload.points;
-      }
 
       const response = await fetch(url, {
         method,
@@ -545,120 +530,6 @@ export function RealtorForm({
           )}
         />
 
-        {canEditPoints && (
-          <FormField
-            control={form.control}
-            name="points"
-            render={({ field }) => {
-              const currentPoints = field.value ?? 0;
-              return (
-                <FormItem>
-                  <FormLabel>Points</FormLabel>
-                  <div className="text-2xl font-bold tabular-nums">
-                    {currentPoints.toLocaleString()}
-                  </div>
-
-                  {/* Add / Retract buttons */}
-                  <div className="flex gap-2 mt-2">
-                    <Button
-                      type="button"
-                      variant={pointsMode === 'add' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() =>
-                        setPointsMode((m) => (m === 'add' ? null : 'add'))
-                      }
-                      disabled={isLoading}
-                    >
-                      <Plus className="mr-1 h-4 w-4" /> Add Points
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={pointsMode === 'retract' ? 'destructive' : 'outline'}
-                      size="sm"
-                      onClick={() =>
-                        setPointsMode((m) => (m === 'retract' ? null : 'retract'))
-                      }
-                      disabled={isLoading}
-                    >
-                      <Minus className="mr-1 h-4 w-4" /> Retract Points
-                    </Button>
-                  </div>
-
-                  {/* Inline input when a mode is active */}
-                  {pointsMode && (
-                    <div className="space-y-2 mt-2">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          inputMode="numeric"
-                          min={1}
-                          step={1}
-                          placeholder="Enter amount"
-                          value={pointsDelta}
-                          onChange={(e) => setPointsDelta(e.target.value)}
-                          disabled={isLoading}
-                          className="w-40"
-                        />
-                      </div>
-                      <Input
-                        placeholder="Reason (required)"
-                        value={pointsReason}
-                        onChange={(e) => setPointsReason(e.target.value)}
-                        disabled={isLoading}
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={
-                          isLoading ||
-                          !pointsDelta ||
-                          Number(pointsDelta) <= 0 ||
-                          !pointsReason.trim()
-                        }
-                        onClick={async () => {
-                          const delta = Math.abs(
-                            Math.round(Number(pointsDelta))
-                          );
-                          if (!delta || !pointsReason.trim()) return;
-                          if (!realtor?.id) return;
-                          try {
-                            const res = await fetch(
-                              `/api/realtors/${realtor.id}/points`,
-                              {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  amount: delta,
-                                  type: pointsMode === 'add' ? 'add' : 'redeem',
-                                  reason: pointsReason.trim(),
-                                }),
-                              }
-                            );
-                            if (!res.ok) {
-                              const data = await res.json();
-                              throw new Error(data.error || 'Failed');
-                            }
-                            const data = await res.json();
-                            field.onChange(data.balance);
-                          } catch (e: any) {
-                            alert(e.message || 'Failed to update points');
-                          }
-                          setPointsDelta('');
-                          setPointsReason('');
-                          setPointsMode(null);
-                        }}
-                      >
-                        Update
-                      </Button>
-                    </div>
-                  )}
-
-                  <FormMessage />
-                </FormItem>
-              );
-            }}
-          />
-        )}
 
         {/* Social Media Profiles */}
         <div className="mt-6">

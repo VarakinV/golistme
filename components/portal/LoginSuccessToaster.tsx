@@ -21,6 +21,6 @@ export default function LoginSuccessToaster() {
     }
   }, [searchParams, router]);
 
-  return <Toaster position="bottom-right" />;
+  return <Toaster richColors position="bottom-right" />;
 }
 

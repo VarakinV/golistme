@@ -189,8 +189,7 @@ export default function ClientsPage() {
   };
 
   const { data: session } = useSession();
-  const userRole = (session?.user as any)?.role;
-  const canEditPoints = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+
 
   return (
     <div className="w-full">
@@ -382,7 +381,6 @@ export default function ClientsPage() {
           <div className="pb-4 pt-2">
             <RealtorForm
               realtor={selectedRealtor || undefined}
-              canEditPoints={canEditPoints}
               onSuccess={handleCloseDialog}
               onCancel={() => setIsDialogOpen(false)}
             />
@@ -424,7 +422,7 @@ export default function ClientsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Toaster />
+      <Toaster richColors />
     </div>
   );
 }

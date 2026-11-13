@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
-import { auth } from '@/lib/auth/auth';
+import { requireListingPermission, WorkspaceAccessError } from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import { isS3Available, uploadBufferToS3WithPath } from '@/lib/utils/s3';
 import { renderFlyer } from '@/lib/flyers/generator';
@@ -21,27 +21,18 @@ function qrTargetForVariant(orderId: string, variant: 'f1' | 'f2' | 'f3', base: 
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; flyerId: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!isS3Available()) return NextResponse.json({ error: 'S3 not configured' }, { status: 503 });
-
     const { id, flyerId } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
+    await requireListingPermission(id, 'GENERATE_MARKETING');
+    if (!isS3Available()) return NextResponse.json({ error: 'S3 not configured' }, { status: 503 });
 
     const flyer = await prisma.orderFlyer.findUnique({ where: { id: flyerId } });
     if (!flyer || flyer.orderId !== id) return NextResponse.json({ error: 'Flyer not found' }, { status: 404 });
 
-    // Permission: admin/superadmin or owning realtor
-    const order = await prisma.order.findUnique({
+    const order = await prisma.listing.findUnique({
       where: { id },
       include: { realtor: { select: { firstName: true, lastName: true, phone: true, email: true, headshot: true, companyLogo: true } } },
     });
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
 
     // Validate sources
     const sources = await prisma.orderReelSourceImage.findMany({ where: { orderId: id }, orderBy: { sortOrder: 'asc' } });
@@ -99,6 +90,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Failed to regenerate', details: String(err?.message || err) }, { status: 400 });
     }
   } catch (e) {
+    if (e instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error(e);
     return NextResponse.json({ error: 'Retry failed' }, { status: 500 });
   }

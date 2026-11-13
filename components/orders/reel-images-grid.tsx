@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Loader2, Trash2, GripVertical } from "lucide-react";
 import { DeleteIconButton } from "@/components/admin/ui/icon-action";
 import { toast } from "sonner";
+import { requestPermission, showErrorDialog } from '@/lib/ui/feedback';
 
 interface Item {
   id: string;
@@ -16,10 +17,12 @@ export function ReelImagesGrid({
   orderId,
   refreshToken = 0,
   onDeleted,
+  canManage = true,
 }: {
   orderId: string;
   refreshToken?: number;
   onDeleted?: () => void;
+  canManage?: boolean;
 }) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,7 +51,11 @@ export function ReelImagesGrid({
   }, [orderId, refreshToken]);
 
   async function removeMany(ids: string[]) {
-    setDeleting("bulk");
+    if (!canManage) {
+      requestPermission('delete reel images');
+      return;
+    }
+    setDeleting('bulk');
     try {
       await fetch(`/api/orders/${orderId}/media/reels-sources`, {
         method: "DELETE",
@@ -64,6 +71,10 @@ export function ReelImagesGrid({
   }
 
   async function remove(id: string) {
+    if (!canManage) {
+      requestPermission('delete reel images');
+      return;
+    }
     setDeleting(id);
     try {
       await fetch(`/api/orders/${orderId}/media/reels-sources`, {
@@ -88,9 +99,16 @@ export function ReelImagesGrid({
     return copy;
   }
 
-  const handleDragStart = (id: string) => setDragId(id);
+  const handleDragStart = (id: string) => {
+    if (!canManage) return;
+    setDragId(id);
+  };
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = async (overId: string) => {
+    if (!canManage) {
+      requestPermission('reorder reel images');
+      return;
+    }
     if (!dragId || dragId === overId) return;
     const next = reorderByIds(items, dragId, overId);
     setItems(next);
@@ -107,7 +125,7 @@ export function ReelImagesGrid({
       if (!res.ok) throw new Error("Failed to save order");
       toast.success("Image order saved");
     } catch (e) {
-      toast.error("Failed to save order");
+      showErrorDialog("Failed to save order");
     } finally {
       setSavingOrder(false);
     }
@@ -169,7 +187,7 @@ export function ReelImagesGrid({
           <div
             key={p.id}
             className={`relative group border rounded-md overflow-hidden ${selected[p.id] ? "ring-2 ring-primary" : ""}`}
-            draggable
+            draggable={canManage}
             onDragStart={() => handleDragStart(p.id)}
             onDragOver={handleDragOver}
             onDrop={() => handleDrop(p.id)}

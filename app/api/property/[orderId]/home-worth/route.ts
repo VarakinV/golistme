@@ -43,7 +43,7 @@ const schema = z.object({
 
 async function sendEmail({ to, subject, html, replyTo, from }: { to: string; subject: string; html: string; replyTo?: string; from?: string }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const senderFrom = from || process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const senderFrom = from || process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   if (!apiKey) {
     console.warn('[HOME WORTH] RESEND_API_KEY not set; logging instead.');
     console.log('[HOME WORTH EMAIL]', { to, subject });
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     const recaptcha = await verifyRecaptchaServer(parsed.data.recaptchaToken, 'property_home_worth');
     if (!recaptcha.ok) return NextResponse.json({ error: 'reCAPTCHA verification failed' }, { status: 400 });
 
-    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { realtor: true } });
+    const order = await prisma.listing.findUnique({ where: { id: orderId }, include: { realtor: true } });
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
 
     const data = parsed.data;
@@ -83,11 +83,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
 
     await prisma.propertyInquiry.create({
       data: {
+        workspaceId: order.realtorId,
         orderId: order.id,
         name: data.name,
         email: data.email,
         phone: data.phone?.trim() || null,
         message: `What's My Home Worth?\n${summary}`,
+        source: 'HOME_WORTH',
       },
     });
 
@@ -177,7 +179,7 @@ function escapeHtml(value: string) {
 }
 
 function getRealtorFromHeader(realtorName?: string | null) {
-  const fallbackFrom = process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const fallbackFrom = process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   const senderEmail = extractEmailAddress(fallbackFrom);
   const safeName = (realtorName || '').replace(/[<>"\r\n]/g, '').trim();
   return safeName ? `${safeName} <${senderEmail}>` : fallbackFrom;

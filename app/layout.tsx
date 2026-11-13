@@ -17,9 +17,15 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://app.photos4realestate.ca'),
-  title: 'Media Portal - Real Estate Photography Delivery',
-  description: 'Professional real estate photography delivery platform',
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || 'https://golist.me'
+  ),
+  title: {
+    default: 'GoList.me — Real Estate Listing Marketing',
+    template: '%s | GoList.me',
+  },
+  description:
+    'Create property listings, public property websites, reels, flyers, and QR codes for real estate marketing.',
   icons: {
     icon: '/Map-Pin-Logo.svg',
     shortcut: '/Map-Pin-Logo.svg',
@@ -42,24 +48,28 @@ export default function RootLayout({
         className="font-[family-name:var(--font-inter)]"
         suppressHydrationWarning
       >
-        {/* Google Tag Manager (script) */}
-        <Script id="gtm-base" strategy="afterInteractive">
-          {`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+        {/* Google Tag Manager (script) — only when a GoList GTM ID is configured */}
+        {process.env.NEXT_PUBLIC_GTM_ID ? (
+          <Script id="gtm-base" strategy="afterInteractive">
+            {`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
             new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
             j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;
             j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;
-            f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-NMRQLKX4');`}
-        </Script>
+            f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${process.env.NEXT_PUBLIC_GTM_ID}');`}
+          </Script>
+        ) : null}
         {/* End Google Tag Manager (script) */}
         {/* Google Tag Manager (noscript) */}
-        <noscript>
-          <iframe
-            src="https://www.googletagmanager.com/ns.html?id=GTM-NMRQLKX4"
-            height="0"
-            width="0"
-            style={{ display: 'none', visibility: 'hidden' }}
-          />
-        </noscript>
+        {process.env.NEXT_PUBLIC_GTM_ID ? (
+          <noscript>
+            <iframe
+              src={`https://www.googletagmanager.com/ns.html?id=${process.env.NEXT_PUBLIC_GTM_ID}`}
+              height="0"
+              width="0"
+              style={{ display: 'none', visibility: 'hidden' }}
+            />
+          </noscript>
+        ) : null}
         {/* End Google Tag Manager (noscript) */}
         <AdminThemeProvider>
           <AuthSessionProvider>{children}</AuthSessionProvider>

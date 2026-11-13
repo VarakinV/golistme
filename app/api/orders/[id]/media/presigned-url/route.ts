@@ -1,38 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth/auth';
-import { prisma } from '@/lib/db/prisma';
+import {
+  requireListingPermission,
+  WorkspaceAccessError,
+} from '@/lib/auth/workspace';
 import { getOrderMediaPresignedUrl, isS3Available } from '@/lib/utils/s3';
+import { validateUpload, type UploadCategory } from '@/lib/media/validation';
+
+const CATEGORIES: UploadCategory[] = [
+  'photos',
+  'videos',
+  'floorplans',
+  'attachments',
+  'reels-sources',
+];
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!isS3Available()) return NextResponse.json({ error: 'S3 not configured' }, { status: 503 });
-
-    const { id } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
-
-    // ensure order belongs to current user (admin or same realtor)
-    const order = await prisma.order.findUnique({ where: { id } });
-    if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    if (!isS3Available()) {
+      return NextResponse.json({ error: 'S3 not configured' }, { status: 503 });
     }
 
-    const { category, fileName, fileType } = await req.json();
-    if (!category || !fileName || !fileType) return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
+    const { id } = await params;
+    await requireListingPermission(id, 'MANAGE_LISTINGS');
 
-    if (!['photos', 'videos', 'floorplans', 'attachments', 'reels-sources'].includes(category)) {
+    const { category, fileName, fileType } = await req.json();
+    if (!category || !fileName || !fileType) {
+      return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
+    }
+
+    if (!CATEGORIES.includes(category)) {
       return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
+    }
+
+    const validation = validateUpload(category, fileType, String(fileName));
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
     const data = await getOrderMediaPresignedUrl(id, category, fileName, fileType);
     return NextResponse.json(data);
   } catch (e) {
+    if (e instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error(e);
     return NextResponse.json({ error: 'Failed to create presigned URL' }, { status: 500 });
   }
 }
-

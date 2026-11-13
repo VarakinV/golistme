@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Playwright MCP browser tool output (snapshots, screenshots, logs)
 .playwright-mcp
+
+# local build/typecheck logs
+*.log

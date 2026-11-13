@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { auth } from '@/lib/auth/auth';
+import {
+  getAuthContext,
+  hasPermission,
+  isPlatformAdmin,
+  listingWhereForContext,
+} from '@/lib/auth/workspace';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -10,14 +15,13 @@ const schema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const ctx = await getAuthContext();
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
-    const user = session.user as any;
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    const realtorId = user?.realtorId as string | undefined;
+    if (!hasPermission(ctx, 'MANAGE_LISTINGS')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
+    }
 
     const body = await request.json();
     const parsed = schema.safeParse(body);
@@ -26,8 +30,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid fields' }, { status: 400 });
     }
 
-    const order = await prisma.order.findUnique({
-      where: { id: parsed.data.orderId },
+    const order = await prisma.listing.findFirst({
+      where: {
+        id: parsed.data.orderId,
+        ...(isPlatformAdmin(ctx) ? {} : listingWhereForContext(ctx)),
+      },
       include: {
         propertyPages: {
           where: { published: true },
@@ -40,15 +47,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) {
-        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-      }
-      if (order.status !== 'PUBLISHED' && order.status !== 'DRAFT') {
-        return NextResponse.json({ error: 'Cannot create QR for archived order' }, { status: 400 });
-      }
-    }
-
     let propertyPageId = parsed.data.propertyPageId || null;
     if (!propertyPageId && order.propertyPages.length > 0) {
       propertyPageId = order.propertyPages[0].id;
@@ -58,7 +56,7 @@ export async function POST(request: NextRequest) {
       data: {
         displayId: '',
         status: 'ACTIVE',
-        createdByUserId: session.user.id,
+        createdByUserId: ctx.userId,
         assignments: {
           create: {
             orderId: order.id,

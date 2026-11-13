@@ -28,7 +28,7 @@
 | **Templates** | Stored in JSON2Video platform, referenced by env-var IDs (`JSON2VIDEO_TEMPLATE_ID_V1..V9`, `_H1`, `_H2`) |
 | **Merge variables** | `ADDRESS`, `CITY`, `POSTCODE`, `BEDROOMS`, `BATHROOMS`, `SQFT`, `IMAGE_1..6`, `AGENT_PICTURE`, `AGENT_NAME`, `AGENT_PHONE`, `AGENCY_LOGO` |
 | **Music** | **None** — button label says "Generate 3 reels (no music)". Audio is baked into J2V templates. |
-| **Storage** | S3 bucket `photos4remedia` in `ca-central-1` |
+| **Storage** | S3 bucket `golistme-media` in `ca-central-1` |
 | **Deployment** | Vercel (serverless). FFmpeg disabled on Vercel. |
 
 ---
@@ -113,7 +113,7 @@ These give me (the AI agent) the exact same best-practice knowledge the Remotion
 Remotion will be **integrated into the existing Next.js app** (not a separate monorepo package). This keeps a single `package.json`, shared types, and enables `@remotion/player` for live preview inside the Next.js app.
 
 ```
-hdphotohub-clone/
+golistme/
 ├── app/                          # Next.js app (unchanged)
 ├── components/                   # React components (unchanged)
 ├── lib/video/
@@ -489,7 +489,7 @@ Same loop. Give me the reference for the desired result (or describe the change)
 
 ### Phase 2b — Hardening (post-integration fixes, all done)
 - [x] Delivery-page playback fix (removed `crossOrigin`; control bar restored)
-- [x] Finished MP4 auto-copied Remotion bucket → `photos4remedia` (path-style URL detection)
+- [x] Finished MP4 auto-copied Remotion bucket → `golistme-media` (path-style URL detection)
 - [x] Delete reel/video purges S3 + Remotion bucket (`deleteRender`) + DB
 - [x] Per-reel music override in ReelsList (re-renders one reel)
 - [x] Default music per template + batch override at generate
@@ -566,9 +566,9 @@ npx remotion lambda functions deploy \
 ```env
 REMOTION_AWS_REGION=ca-central-1
 REMOTION_FUNCTION_NAME=remotion-render-4-0-507-mem2048mb-disk2048mb-120sec
-REMOTION_SERVE_URL=https://remotionlambda-cacentral1-<id>.s3.ca-central-1.amazonaws.com/sites/hdphotohub/index.html
+REMOTION_SERVE_URL=https://remotionlambda-cacentral1-<id>.s3.ca-central-1.amazonaws.com/sites/golistme/index.html
 REMOTION_BUCKET_NAME=remotionlambda-cacentral1-<id>   # Remotion's bucket (render progress + temp output; getRenderProgress needs it)
-REMOTION_OUTPUT_BUCKET=                                # optional — write MP4 directly to your own bucket (needs extra Lambda IAM); leave unset: webhook copies into photos4remedia instead
+REMOTION_OUTPUT_BUCKET=                                # optional — write MP4 directly to your own bucket (needs extra Lambda IAM); leave unset: webhook copies into golistme-media instead
 REMOTION_AWS_ACCESS_KEY_ID=<key>
 REMOTION_AWS_SECRET_ACCESS_KEY=<secret>
 REMOTION_WEBHOOK_URL=http://localhost:3000/api/integrations/remotion   # production URL on Vercel
@@ -577,7 +577,7 @@ REMOTION_QUEUE_CONCURRENCY=3                           # max renders started per
 REMOTION_VARIANTS=v1-9x16                              # fallback active-variant list if VideoTemplate table is empty
 ```
 
-**Note:** the finished MP4 lands in the Remotion bucket (lifecycle deletes it after ~1 day); the webhook copies it into `photos4remedia` automatically for permanence.
+**Note:** the finished MP4 lands in the Remotion bucket (lifecycle deletes it after ~1 day); the webhook copies it into `golistme-media` automatically for permanence.
 
 ---
 

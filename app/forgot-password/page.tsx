@@ -69,7 +69,7 @@ export default function ForgotPasswordPage() {
           )}
         </CardContent>
       </Card>
-      <Toaster />
+      <Toaster richColors />
     </div>
   );
 }

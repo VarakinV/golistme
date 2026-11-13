@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { auth } from '@/lib/auth/auth';
+import { getAuthContext, hasPermission, isPlatformAdmin } from '@/lib/auth/workspace';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const ctx = await getAuthContext();
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { id } = await params;
-    const user = session.user as any;
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    const realtorId = user?.realtorId as string | undefined;
+    const canViewLeads = hasPermission(ctx, 'VIEW_LEADS');
+    const canViewAnalytics = hasPermission(ctx, 'VIEW_ANALYTICS');
+    if (!canViewLeads && !canViewAnalytics) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
+    }
+    const isAdmin = isPlatformAdmin(ctx);
+    const realtorId = ctx.workspaceId;
+    const currentUserId = ctx.userId;
 
     const qrCode = await prisma.qRCode.findUnique({
       where: { id },
@@ -55,24 +60,24 @@ export async function GET(
       const hasAccess = qrCode.assignments.some(
         (a) => a.order.realtorId === realtorId
       );
-      if (!hasAccess && qrCode.createdByUserId !== session.user.id) {
+      if (!hasAccess && qrCode.createdByUserId !== currentUserId) {
         return NextResponse.json({ error: 'QR code not found' }, { status: 404 });
       }
     }
 
     const assignmentStats = qrCode.assignments.map((assignment) => {
-      const totalScans = assignment.scans.length;
-      const totalLeads = assignment.leads.length;
+      const totalScans = canViewAnalytics ? assignment.scans.length : 0;
+      const totalLeads = canViewLeads ? assignment.leads.length : 0;
 
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      const recentScans = assignment.scans.filter(
-        (s) => s.scannedAt >= sevenDaysAgo
-      ).length;
-      const recentLeads = assignment.leads.filter(
-        (l) => l.createdAt >= sevenDaysAgo
-      ).length;
+      const recentScans = canViewAnalytics
+        ? assignment.scans.filter((s) => s.scannedAt >= sevenDaysAgo).length
+        : 0;
+      const recentLeads = canViewLeads
+        ? assignment.leads.filter((l) => l.createdAt >= sevenDaysAgo).length
+        : 0;
 
       return {
         id: assignment.id,
@@ -89,18 +94,22 @@ export async function GET(
         totalLeads,
         recentScans,
         recentLeads,
-        scans: assignment.scans.map((s) => ({
-          id: s.id,
-          scannedAt: s.scannedAt,
-          userAgent: s.userAgent,
-        })),
-        leads: assignment.leads.map((l) => ({
-          id: l.id,
-          name: l.name,
-          email: l.email,
-          phone: l.phone,
-          createdAt: l.createdAt,
-        })),
+        scans: canViewAnalytics
+          ? assignment.scans.map((s) => ({
+              id: s.id,
+              scannedAt: s.scannedAt,
+              userAgent: s.userAgent,
+            }))
+          : [],
+        leads: canViewLeads
+          ? assignment.leads.map((l) => ({
+              id: l.id,
+              name: l.name,
+              email: l.email,
+              phone: l.phone,
+              createdAt: l.createdAt,
+            }))
+          : [],
       };
     });
 
@@ -111,6 +120,7 @@ export async function GET(
         status: qrCode.status,
         createdAt: qrCode.createdAt,
       },
+      view: { leads: canViewLeads, analytics: canViewAnalytics },
       assignments: assignmentStats,
     });
   } catch (e) {

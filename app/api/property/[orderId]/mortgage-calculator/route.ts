@@ -45,7 +45,7 @@ async function sendEmail({
   from?: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const senderFrom = from || process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const senderFrom = from || process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   if (!apiKey) {
     console.warn('[MORTGAGE CALCULATOR] RESEND_API_KEY not set; logging instead.');
     console.log('[MORTGAGE CALCULATOR EMAIL]', { to, subject });
@@ -93,7 +93,7 @@ export async function POST(
       return NextResponse.json({ error: 'reCAPTCHA verification failed' }, { status: 400 });
     }
 
-    const order = await prisma.order.findUnique({
+    const order = await prisma.listing.findUnique({
       where: { id: orderId },
       include: { realtor: true },
     });
@@ -113,11 +113,13 @@ export async function POST(
 
     await prisma.propertyInquiry.create({
       data: {
+        workspaceId: order.realtorId,
         orderId: order.id,
         name: parsed.data.name,
         email: parsed.data.email,
         phone: parsed.data.phone?.trim() || null,
         message: summary,
+        source: 'MORTGAGE_CALCULATOR',
       },
     });
 
@@ -270,7 +272,7 @@ function escapeHtml(value: string) {
 }
 
 function getRealtorFromHeader(realtorName?: string | null) {
-  const fallbackFrom = process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const fallbackFrom = process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   const senderEmail = extractEmailAddress(fallbackFrom);
   const safeName = (realtorName || '').replace(/[<>"\r\n]/g, '').trim();
   return safeName ? `${safeName} <${senderEmail}>` : fallbackFrom;

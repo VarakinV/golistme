@@ -1,29 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { auth } from '@/lib/auth/auth';
+import { getAuthContext, isPlatformAdmin } from '@/lib/auth/workspace';
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const ctx = await getAuthContext();
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = session.user as any;
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    const realtorId = user?.realtorId as string | undefined;
-
-    const where = isAdmin
+    const admin = isPlatformAdmin(ctx);
+    const where = admin
       ? {}
       : {
-          assignments: {
-            some: {
-              order: {
-                realtorId,
-              },
-              unassignedAt: null,
-            },
-          },
+          OR: [
+            ...(ctx.workspaceId
+              ? [
+                  {
+                    assignments: {
+                      some: {
+                        order: { realtorId: ctx.workspaceId },
+                        unassignedAt: null,
+                      },
+                    },
+                  },
+                ]
+              : []),
+            // Keep QR codes visible to the person who created them even after
+            // their listing was deleted, so a printed code can be reused.
+            { createdByUserId: ctx.userId },
+          ],
         };
 
     const qrCodes = await prisma.qRCode.findMany({

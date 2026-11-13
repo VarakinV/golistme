@@ -12,8 +12,11 @@ const TONES: Record<PillTone, string> = {
 };
 
 const LABELS: Record<string, { label: string; tone: PillTone }> = {
-  // Orders
+  // Listings
   DRAFT: { label: 'Draft', tone: 'muted' },
+  ACTIVE: { label: 'Active', tone: 'success' },
+  SOLD: { label: 'Sold', tone: 'brand' },
+  // Legacy / other domain values still rendered in admin
   PUBLISHED: { label: 'Published', tone: 'success' },
   ARCHIVED: { label: 'Archived', tone: 'brand' },
   // Bookings
@@ -21,7 +24,6 @@ const LABELS: Record<string, { label: string; tone: PillTone }> = {
   CONFIRMED: { label: 'Confirmed', tone: 'success' },
   CANCELLED: { label: 'Cancelled', tone: 'danger' },
   // Templates
-  ACTIVE: { label: 'Active', tone: 'success' },
   INACTIVE: { label: 'Inactive', tone: 'warn' },
 };
 

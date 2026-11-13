@@ -50,8 +50,11 @@ export function DeleteUserButton({ userId, userLabel }: { userId: string; userLa
           <AlertDialogHeader>
             <AlertDialogTitle>Delete user?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the user
-              <span className="font-medium"> {userLabel}</span> and reassign any owned records to you.
+              This action cannot be undone. This permanently deletes the user
+              <span className="font-medium"> {userLabel}</span>, all listings and
+              uploaded or generated assets in workspaces they own, and their
+              profile images. QR codes and their printables are kept and
+              reassigned to you.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

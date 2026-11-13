@@ -3,28 +3,31 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { hashPassword, validatePassword } from "@/lib/utils/password";
 import { verifyRecaptchaServer } from "@/lib/recaptcha/verify";
-
+import { createWorkspaceForUserTx } from "@/lib/workspaces/create";
+import {
+  createEmailVerificationToken,
+  sendVerificationEmail,
+} from "@/lib/auth/email-verification";
 
 const registerSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
-  name: z.string().min(1, "Name is required"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  companyName: z.string().optional(),
 });
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    // reCAPTCHA v3 verification (if configured)
     const recaptchaToken = (body as any)?.recaptchaToken as string | undefined;
-    const recaptcha = await verifyRecaptchaServer(recaptchaToken, 'register');
+    const recaptcha = await verifyRecaptchaServer(recaptchaToken, "register");
     if (!recaptcha.ok) {
-      return NextResponse.json({ error: 'reCAPTCHA failed' }, { status: 400 });
+      return NextResponse.json({ error: "reCAPTCHA failed" }, { status: 400 });
     }
 
-    // Validate input
     const validatedFields = registerSchema.safeParse(body);
-
     if (!validatedFields.success) {
       return NextResponse.json(
         { error: "Invalid fields", details: validatedFields.error.flatten() },
@@ -32,9 +35,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { email, password, name } = validatedFields.data;
+    const email = validatedFields.data.email.trim().toLowerCase();
+    const { password, firstName, lastName, companyName } = validatedFields.data;
+    const displayName = `${firstName} ${lastName}`.trim();
 
-    // Validate password strength
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.isValid) {
       return NextResponse.json(
@@ -43,11 +47,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email }
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
     });
-
     if (existingUser) {
       return NextResponse.json(
         { error: "User already exists with this email" },
@@ -55,34 +57,56 @@ export async function POST(request: Request) {
       );
     }
 
-    // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Create user
-    const user = await prisma.user.create({
-      data: {
+    const { user, workspace } = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name: displayName,
+          platformRole: "USER",
+          status: "ACTIVE",
+        },
+        select: { id: true, email: true, name: true, platformRole: true },
+      });
+
+      const createdWorkspace = await createWorkspaceForUserTx(tx, {
+        userId: created.id,
+        name: displayName,
         email,
-        password: hashedPassword,
-        name,
-        role: "REALTOR", // Default role for self-registrations
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-      }
+        firstName,
+        lastName,
+        companyName: companyName ?? null,
+      });
+
+      return { user: created, workspace: createdWorkspace };
     });
 
+    let verificationEmailSent = false;
+    try {
+      const token = await createEmailVerificationToken(user.id);
+      const sent = await sendVerificationEmail({
+        to: user.email,
+        name: user.name,
+        token,
+      });
+      verificationEmailSent = sent.ok;
+    } catch (e) {
+      console.error("Verification email error:", e);
+    }
+
     return NextResponse.json(
-      { message: "User created successfully", user },
+      {
+        message: "User created successfully",
+        user,
+        workspace: { id: workspace.id, slug: workspace.slug, name: workspace.name },
+        verificationEmailSent,
+      },
       { status: 201 }
     );
   } catch (error) {
     console.error("Registration error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

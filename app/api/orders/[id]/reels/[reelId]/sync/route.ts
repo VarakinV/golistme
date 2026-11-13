@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth/auth';
+import { requireListingAccess, WorkspaceAccessError } from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import { isS3Available, uploadBufferToS3WithPath } from '@/lib/utils/s3';
 import { extractPosterFromVideoUrl, remotionPosterFrame } from '@/lib/video/poster';
@@ -11,23 +11,11 @@ export const maxDuration = 60;
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string; reelId: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id, reelId } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
+    await requireListingAccess(id);
 
     const reel = await prisma.orderReel.findUnique({ where: { id: reelId } });
     if (!reel || reel.orderId !== id) return NextResponse.json({ error: 'Reel not found' }, { status: 404 });
-
-    // Permission: admin/superadmin or owning realtor
-    const order = await prisma.order.findUnique({ where: { id }, select: { realtorId: true } });
-    if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
 
     if (reel.status !== 'COMPLETE' || !reel.url) {
       return NextResponse.json({ error: 'Reel must be COMPLETE with a URL' }, { status: 400 });
@@ -82,6 +70,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     await prisma.orderReel.update({ where: { id: reel.id }, data: { url: updatedUrl, thumbnail: thumbnail ?? undefined } });
     return NextResponse.json({ ok: true, url: updatedUrl, thumbnail });
   } catch (e) {
+    if (e instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error(e);
     return NextResponse.json({ error: 'Sync storage failed' }, { status: 500 });
   }

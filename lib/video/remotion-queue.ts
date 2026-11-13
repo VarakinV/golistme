@@ -104,7 +104,7 @@ export async function buildRemotionThumbnailContext(reel: {
   variantKey: string;
   musicTrackId?: string | null;
 }): Promise<{ composition: string; inputProps: Record<string, unknown> }> {
-  const order = await prisma.order.findUnique({
+  const order = await prisma.listing.findUnique({
     where: { id: reel.orderId },
     include: {
       realtor: { select: { id: true, firstName: true, lastName: true, phone: true, headshot: true, companyLogo: true } },
@@ -135,7 +135,7 @@ export async function buildRemotionThumbnailContext(reel: {
 }
 
 async function startSingleReel(reel: any) {
-  const order = await prisma.order.findUnique({
+  const order = await prisma.listing.findUnique({
     where: { id: reel.orderId },
     include: {
       realtor: { select: { id: true, firstName: true, lastName: true, phone: true, headshot: true, companyLogo: true } },

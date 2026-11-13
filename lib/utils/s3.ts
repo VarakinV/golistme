@@ -1,4 +1,10 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { v4 as uuidv4 } from "uuid";
 
@@ -21,6 +27,16 @@ const s3Client = isS3Configured
   : null;
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || "";
+
+export function buildS3Url(key: string): string {
+  return `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || "us-east-1"}.amazonaws.com/${key}`;
+}
+
+/** Deterministic URL of the MLS-optimized copy of a listing photo. */
+export function getMlsPhotoUrl(orderId: string, filename: string): string {
+  const base = filename.replace(/\.[^.]+$/, "") + ".jpg";
+  return buildS3Url(`orders/${orderId}/photos/mls/${base}`);
+}
 
 /**
  * Generate a presigned URL for uploading a file directly from the browser to S3
@@ -55,7 +71,7 @@ export async function getPresignedUploadUrlForPath(
   });
 
   const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 300 });
-  const fileUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || "us-east-1"}.amazonaws.com/${fileKey}`;
+  const fileUrl = buildS3Url(fileKey);
 
   return { uploadUrl, fileKey, fileUrl };
 }
@@ -84,26 +100,81 @@ export async function deleteFromS3(fileUrl: string): Promise<void> {
 
   try {
     const url = new URL(fileUrl);
-    let key = url.pathname.substring(1); // Remove leading slash
-
+    const host = url.hostname || '';
     // Path-style URLs look like: s3.<region>.amazonaws.com/<bucket>/<key>
     // (no bucket in the hostname), so strip the bucket prefix from the path.
-    const host = url.hostname || '';
     const isPathStyle =
       host === 's3.amazonaws.com' || /^s3[.-]/.test(host);
-    if (isPathStyle && key.startsWith(`${BUCKET_NAME}/`)) {
-      key = key.substring(BUCKET_NAME.length + 1);
+
+    const stripBucket = (key: string) =>
+      isPathStyle && key.startsWith(`${BUCKET_NAME}/`)
+        ? key.substring(BUCKET_NAME.length + 1)
+        : key;
+
+    const rawKey = url.pathname.substring(1);
+    const candidates = new Set<string>([stripBucket(rawKey)]);
+
+    // Filenames may contain spaces or other characters. `new URL()` encodes
+    // them, so try the decoded key as well.
+    try {
+      candidates.add(stripBucket(decodeURIComponent(rawKey)));
+    } catch {}
+
+    for (const key of candidates) {
+      try {
+        await s3Client.send(
+          new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key })
+        );
+      } catch (error) {
+        console.warn(`Failed to delete S3 key ${key}:`, error);
+      }
     }
-
-    const command = new DeleteObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-    });
-
-    await s3Client.send(command);
   } catch (error) {
     console.error("Error deleting file from S3:", error);
     // Don't throw error as the file might already be deleted
+  }
+}
+
+/**
+ * Delete every object under a prefix. Used when a listing is deleted so
+ * any orphaned assets (including MLS copies) are removed as well.
+ */
+export async function deleteS3Prefix(prefix: string): Promise<void> {
+  if (!isS3Configured || !s3Client) {
+    console.log("S3 not configured, skipping prefix delete");
+    return;
+  }
+
+  try {
+    let continuationToken: string | undefined;
+
+    do {
+      const listed = await s3Client.send(
+        new ListObjectsV2Command({
+          Bucket: BUCKET_NAME,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        })
+      );
+
+      const objects = (listed.Contents ?? [])
+        .map((item) => item.Key)
+        .filter((key): key is string => Boolean(key))
+        .map((Key) => ({ Key }));
+
+      if (objects.length > 0) {
+        await s3Client.send(
+          new DeleteObjectsCommand({
+            Bucket: BUCKET_NAME,
+            Delete: { Objects: objects, Quiet: true },
+          })
+        );
+      }
+
+      continuationToken = listed.NextContinuationToken;
+    } while (continuationToken);
+  } catch (error) {
+    console.error(`Error deleting S3 prefix ${prefix}:`, error);
   }
 }
 

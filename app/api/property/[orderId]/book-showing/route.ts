@@ -30,7 +30,7 @@ async function sendEmail({
   from?: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const senderFrom = from || process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const senderFrom = from || process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   if (!apiKey) {
     console.warn('[BOOK SHOWING] RESEND_API_KEY not set; logging instead.');
     console.log('[BOOK SHOWING EMAIL]', { to, subject });
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     const recaptcha = await verifyRecaptchaServer(parsed.data.recaptchaToken, 'property_book_showing');
     if (!recaptcha.ok) return NextResponse.json({ error: 'reCAPTCHA verification failed' }, { status: 400 });
 
-    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { realtor: true } });
+    const order = await prisma.listing.findUnique({ where: { id: orderId }, include: { realtor: true } });
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
 
     const address = order.propertyFormattedAddress || order.propertyAddress || 'this property';
@@ -79,11 +79,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
 
     await prisma.propertyInquiry.create({
       data: {
+        workspaceId: order.realtorId,
         orderId: order.id,
         name: fullName,
         email: parsed.data.email,
         phone: parsed.data.phone,
         message: inquiryMessage,
+        source: 'BOOK_SHOWING',
       },
     });
 
@@ -156,7 +158,7 @@ function escapeHtml(value: string) {
 }
 
 function getRealtorFromHeader(realtorName?: string | null) {
-  const fallbackFrom = process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const fallbackFrom = process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   const senderEmail = extractEmailAddress(fallbackFrom);
   const safeName = (realtorName || '').replace(/[<>"\r\n]/g, '').trim();
   return safeName ? `${safeName} <${senderEmail}>` : fallbackFrom;

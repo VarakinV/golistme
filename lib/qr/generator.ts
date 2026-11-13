@@ -83,7 +83,7 @@ export async function generateQrPdfFromSvg(svgMarkup: string): Promise<Buffer> {
       .frame { padding: 16px; border-radius: 16px; box-shadow: 0 10px 30px rgba(15,23,42,0.12); }
     </style></head><body><div class="frame">${svgMarkup}</div></body></html>`;
 
-    await page.setContent(html, { waitUntil: ['networkidle0'] });
+    await page.setContent(html, { waitUntil: ['load'] });
     const printablePx = 96 * 7.5; // letter portrait with 0.5in margins -> 7.5in * 96dpi
     const containerWidth = side + 32; // QR size plus 16px padding on each side
     const pdfScale = Math.min(1, printablePx / containerWidth);
@@ -200,7 +200,7 @@ export async function generateStyledQrAssets(
   try{
     const page = await browser.newPage();
     await page.setViewport({ width: size + 64, height: size + 64, deviceScaleFactor: 2 });
-    await page.setContent(html, { waitUntil: ['networkidle0'] });
+    await page.setContent(html, { waitUntil: ['load'] });
     // get svg markup
     const svg = await page.$eval('#container', (el) => {
       const s = el.querySelector('svg');

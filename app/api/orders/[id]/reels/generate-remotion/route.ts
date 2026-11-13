@@ -1,29 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
-import { auth } from '@/lib/auth/auth';
+import {
+  requireListingPermission,
+  hasPermission,
+  WorkspaceAccessError,
+} from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import { remotionQueueConcurrency, startRemotionBatch } from '@/lib/video/remotion-queue';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
+    const ctx = await requireListingPermission(id, 'GENERATE_MARKETING');
+    if (!hasPermission(ctx, 'GENERATE_MARKETING')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
+    }
 
-    const order = await prisma.order.findUnique({
+    const order = await prisma.listing.findUnique({
       where: { id },
       include: { realtor: { select: { id: true, firstName: true, lastName: true, phone: true, headshot: true, companyLogo: true } } },
     });
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
 
     // Sources 3..6
     const sources = await prisma.orderReelSourceImage.findMany({ where: { orderId: id }, orderBy: { sortOrder: 'asc' } });
@@ -146,6 +144,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     return NextResponse.json({ ok: true, created: created.map((c) => c.id), started, failed });
   } catch (e) {
+    if (e instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error(e);
     return NextResponse.json({ error: 'Failed to queue Remotion reels' }, { status: 500 });
   }

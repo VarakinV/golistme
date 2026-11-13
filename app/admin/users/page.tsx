@@ -10,26 +10,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { UsersFilters } from '@/components/admin/users-filters';
 import { DeleteUserButton } from '@/components/admin/delete-user-button';
 import { Toaster } from '@/components/ui/sonner';
 import { PageHead } from '@/components/admin/ui/page-head';
 import { TableShell } from '@/components/admin/ui/table-shell';
 import { StatusPill } from '@/components/admin/ui/status-pill';
-import { AssignRealtorAdmins } from '@/components/admin/assign-realtor-admins';
 
 export const dynamic = 'force-dynamic';
+
+const PLATFORM_ROLES = ['USER', 'ADMIN'] as const;
 
 export default async function AdminUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; q?: string; role?: string }>;
+  searchParams: Promise<{ page?: string; q?: string; platformRole?: string; status?: string }>;
 }) {
   const session = await auth();
   const me = session?.user as any | null;
 
-  // Gate: SUPERADMIN only
-  if (!me || me.role !== 'SUPERADMIN') {
+  if (!me || me.platformRole !== 'SUPERADMIN') {
     return (
       <div className="w-full">
         <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
@@ -39,19 +38,19 @@ export default async function AdminUsersPage({
     );
   }
 
-  // Filters & pagination
-  const { page: pageParam, q: qParam, role: roleParam } = await searchParams;
+  const { page: pageParam, q: qParam, platformRole: roleParam, status: statusParam } =
+    await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
   const perPage = 20;
   const q = (qParam || '').trim();
-  const roleFilterParam =
-    roleParam === 'ADMIN' || roleParam === 'REALTOR' ? roleParam : '';
-  const allowedRoles = roleFilterParam
-    ? [roleFilterParam]
-    : ['ADMIN', 'REALTOR'];
+  const platformRoleFilter =
+    roleParam === 'USER' || roleParam === 'ADMIN' ? roleParam : undefined;
+  const statusFilter =
+    statusParam === 'ACTIVE' || statusParam === 'SUSPENDED' ? statusParam : undefined;
 
   const where = {
-    role: { in: allowedRoles as any },
+    ...(platformRoleFilter ? { platformRole: platformRoleFilter as 'USER' | 'ADMIN' } : {}),
+    ...(statusFilter ? { status: statusFilter as 'ACTIVE' | 'SUSPENDED' } : {}),
     ...(q
       ? {
           OR: [
@@ -65,182 +64,115 @@ export default async function AdminUsersPage({
   const total = await prisma.user.count({ where });
   const users = await prisma.user.findMany({
     where,
-    orderBy: [{ role: 'desc' }, { createdAt: 'desc' }],
+    orderBy: [{ createdAt: 'desc' }],
     skip: (page - 1) * perPage,
     take: perPage,
     select: {
       id: true,
       name: true,
       email: true,
-      role: true,
+      platformRole: true,
+      status: true,
       createdAt: true,
-      realtorId: true,
+      memberships: {
+        select: { workspace: { select: { id: true, name: true, slug: true } } },
+      },
     },
   });
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
-  // Admin options for assignment dropdown
-  const adminUsers = await prisma.user.findMany({
-    where: { role: 'ADMIN' },
-    select: { id: true, name: true, email: true },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  // Build map of realtorId -> assigned admin ids
-  const realtorIds = users
-    .filter((u) => u.role === 'REALTOR' && u.realtorId)
-    .map((u) => u.realtorId!);
-  const assignments = realtorIds.length
-    ? await prisma.realtorAssignment.findMany({
-        where: { realtorId: { in: realtorIds } },
-        select: { realtorId: true, adminId: true },
-      })
-    : [];
-  const assignedMap = new Map<string, string[]>();
-  for (const a of assignments) {
-    const arr = assignedMap.get(a.realtorId) || [];
-    arr.push(a.adminId);
-    assignedMap.set(a.realtorId, arr);
-  }
-
-  async function updateRoleAction(formData: FormData) {
+  async function updatePlatformRoleAction(formData: FormData) {
     'use server';
     const session = await auth();
     const current = session?.user as any | null;
-    if (!current || current.role !== 'SUPERADMIN')
-      throw new Error('Unauthorized');
+    if (!current || current.platformRole !== 'SUPERADMIN') throw new Error('Unauthorized');
 
     const userId = String(formData.get('userId') || '');
-    const role = String(formData.get('role') || '');
+    const platformRole = String(formData.get('platformRole') || '');
 
-    if (!userId || !['ADMIN', 'REALTOR'].includes(role))
+    if (!userId || !PLATFORM_ROLES.includes(platformRole as (typeof PLATFORM_ROLES)[number])) {
       throw new Error('Invalid payload');
+    }
 
     const target = await prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true, realtorId: true },
+      select: { platformRole: true },
     });
     if (!target) throw new Error('User not found');
-    if (target.role === 'SUPERADMIN')
-      throw new Error('Cannot modify SUPERADMIN');
-
-    // If promoting to ADMIN from REALTOR, remove any RealtorAssignment rows for their realtor profile
-    if (role === 'ADMIN' && target.realtorId) {
-      await prisma.$transaction([
-        prisma.realtorAssignment.deleteMany({
-          where: { realtorId: target.realtorId },
-        }),
-        prisma.user.update({
-          where: { id: userId },
-          data: { role: role as any },
-        }),
-      ]);
-    } else {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { role: role as any },
-      });
-    }
-    revalidatePath('/admin/users');
-  }
-
-  async function deleteUserAction(formData: FormData) {
-    'use server';
-    const session = await auth();
-    const current = session?.user as any | null;
-    if (!current || current.role !== 'SUPERADMIN')
-      throw new Error('Unauthorized');
-
-    const userId = String(formData.get('userId') || '');
-    if (!userId) throw new Error('Invalid payload');
-
-    if (userId === current.id)
-      throw new Error('Cannot delete your own account');
-
-    const target = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-    if (!target) throw new Error('User not found');
-    if (target.role === 'SUPERADMIN')
-      throw new Error('Cannot delete SUPERADMIN');
-
-    // Reassign ownership references to SUPERADMIN before deletion to satisfy FKs
-    await prisma.$transaction([
-      prisma.realtor.updateMany({
-        where: { userId },
-        data: { userId: current.id },
-      }),
-      prisma.invitation.updateMany({
-        where: { invitedById: userId },
-        data: { invitedById: current.id },
-      }),
-      prisma.user.delete({ where: { id: userId } }),
-    ]);
-
-    revalidatePath('/admin/users');
-  }
-
-  async function createRealtorProfileAction(formData: FormData) {
-    'use server';
-    const session = await auth();
-    const current = session?.user as any | null;
-    if (!current || current.role !== 'SUPERADMIN')
-      throw new Error('Unauthorized');
-
-    const userId = String(formData.get('userId') || '');
-    if (!userId) throw new Error('Invalid payload');
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, name: true, realtorId: true },
-    });
-    if (!user) throw new Error('User not found');
-    if (user.realtorId) return revalidatePath('/admin/users');
-
-    // If a Realtor profile exists with the same email, link to it; otherwise create
-    let realtor = await prisma.realtor.findUnique({
-      where: { email: user.email },
-    });
-    if (!realtor) {
-      const fullName = (user.name || '').trim();
-      const [firstName, ...rest] = fullName
-        ? fullName.split(' ')
-        : [user.email.split('@')[0]];
-      const lastName = rest.join(' ');
-      realtor = await prisma.realtor.create({
-        data: {
-          firstName: firstName || 'Realtor',
-          lastName: lastName || '',
-          email: user.email,
-          userId: current.id, // created by superadmin
-        },
-      });
-    }
+    if (target.platformRole === 'SUPERADMIN') throw new Error('Cannot modify SUPERADMIN');
 
     await prisma.user.update({
-      where: { id: user.id },
-      data: { realtorId: realtor.id },
+      where: { id: userId },
+      data: { platformRole: platformRole as 'USER' | 'ADMIN' },
+    });
+    revalidatePath('/admin/users');
+  }
+
+  async function toggleStatusAction(formData: FormData) {
+    'use server';
+    const session = await auth();
+    const current = session?.user as any | null;
+    if (!current || current.platformRole !== 'SUPERADMIN') throw new Error('Unauthorized');
+
+    const userId = String(formData.get('userId') || '');
+    if (!userId) throw new Error('Invalid payload');
+
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { platformRole: true, status: true },
+    });
+    if (!target) throw new Error('User not found');
+    if (target.platformRole === 'SUPERADMIN') throw new Error('Cannot modify SUPERADMIN');
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: target.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE' },
     });
     revalidatePath('/admin/users');
   }
 
   const queryStr = (p: number) =>
     `/admin/users?page=${p}${q ? `&q=${encodeURIComponent(q)}` : ''}${
-      roleFilterParam ? `&role=${roleFilterParam}` : ''
-    }`;
+      platformRoleFilter ? `&platformRole=${platformRoleFilter}` : ''
+    }${statusFilter ? `&status=${statusFilter}` : ''}`;
 
   return (
     <div className="w-full">
-      <PageHead title="Users" subtitle="Manage admin and realtor accounts" />
+      <PageHead title="Users" subtitle="Manage platform users and workspaces" />
 
       <TableShell
         toolbar={
           <div className="mb-3.5 flex flex-wrap items-center gap-3">
-            <h2 className="font-display text-[15px] font-semibold">Admins &amp; Realtors</h2>
-            <div className="ml-auto w-full sm:w-auto">
-              <UsersFilters initialQ={q} initialRole={roleFilterParam as any} />
-            </div>
+            <h2 className="font-display text-[15px] font-semibold">Platform users</h2>
+            <form className="ml-auto flex w-full items-center gap-2 sm:w-auto" action="/admin/users">
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="Search name or email"
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+              />
+              <select
+                name="platformRole"
+                defaultValue={platformRoleFilter ?? ''}
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              >
+                <option value="">All roles</option>
+                <option value="USER">USER</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+              <select
+                name="status"
+                defaultValue={statusFilter ?? ''}
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              >
+                <option value="">All statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="SUSPENDED">Suspended</option>
+              </select>
+              <Button type="submit" size="sm" variant="outline">
+                Filter
+              </Button>
+            </form>
           </div>
         }
       >
@@ -249,16 +181,15 @@ export default async function AdminUsersPage({
             <tr>
               <th>Name</th>
               <th>Email</th>
-              <th>Role</th>
+              <th>Platform role</th>
+              <th>Workspaces</th>
+              <th>Status</th>
               <th className="text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr
-                key={u.id}
-                className="border-b border-border last:border-b-0 hover:bg-surface-2"
-              >
+              <tr key={u.id} className="border-b border-border last:border-b-0 hover:bg-surface-2">
                 <td data-label="Name" className="td-primary">
                   <div className="font-medium">{u.name || '—'}</div>
                   <div className="text-xs text-faint">
@@ -266,58 +197,64 @@ export default async function AdminUsersPage({
                   </div>
                 </td>
                 <td data-label="Email">{u.email}</td>
-                <td data-label="Role">
+                <td data-label="Platform role">
                   <div className="flex flex-wrap items-center gap-2">
-                    <StatusPill status={u.role === 'ADMIN' ? 'PUBLISHED' : 'PENDING'} label={u.role} />
-                    <form
-                      action={updateRoleAction}
-                      className="flex items-center gap-2"
-                    >
-                      <input type="hidden" name="userId" value={u.id} />
-                      <Select name="role" defaultValue={u.role}>
-                        <SelectTrigger className="w-[130px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ADMIN">ADMIN</SelectItem>
-                          <SelectItem value="REALTOR">REALTOR</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button type="submit" variant="outline" size="sm">
-                        Save
-                      </Button>
-                    </form>
-                  </div>
-                </td>
-                <td data-label="Actions">
-                  <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-                    {u.role === 'REALTOR' && !u.realtorId && (
-                      <form action={createRealtorProfileAction}>
+                    <StatusPill
+                      status={u.platformRole === 'SUPERADMIN' ? 'ACTIVE' : 'PENDING'}
+                      label={u.platformRole}
+                    />
+                    {u.platformRole !== 'SUPERADMIN' && (
+                      <form action={updatePlatformRoleAction} className="flex items-center gap-2">
                         <input type="hidden" name="userId" value={u.id} />
-                        <Button type="submit" size="sm" variant="secondary">
-                          Create Realtor Profile
+                        <Select name="platformRole" defaultValue={u.platformRole}>
+                          <SelectTrigger className="w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="USER">USER</SelectItem>
+                            <SelectItem value="ADMIN">ADMIN</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button type="submit" variant="outline" size="sm">
+                          Save
                         </Button>
                       </form>
                     )}
-                    <DeleteUserButton
-                      userId={u.id}
-                      userLabel={u.name || u.email}
-                    />
                   </div>
-                  {u.role === 'REALTOR' && u.realtorId && (
-                    <div className="mt-2 flex justify-start md:justify-end">
-                      <AssignRealtorAdmins
-                        realtorId={u.realtorId}
-                        admins={adminUsers.map((a) => ({
-                          id: a.id,
-                          label: a.name || a.email,
-                        }))}
-                        assignedAdminIds={
-                          assignedMap.get(u.realtorId) || []
-                        }
-                      />
-                    </div>
+                </td>
+                <td data-label="Workspaces">
+                  {u.memberships.length === 0 ? (
+                    <span className="text-xs text-faint">None</span>
+                  ) : (
+                    <ul className="space-y-1 text-sm">
+                      {u.memberships.map((m) => (
+                        <li key={m.workspace.id}>
+                          <Link className="underline" href={`/admin/clients/${m.workspace.id}`}>
+                            {m.workspace.name}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
                   )}
+                </td>
+                <td data-label="Status">
+                  <StatusPill
+                    status={u.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'}
+                    label={u.status}
+                  />
+                </td>
+                <td data-label="Actions">
+                  <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                    {u.platformRole !== 'SUPERADMIN' && (
+                      <form action={toggleStatusAction}>
+                        <input type="hidden" name="userId" value={u.id} />
+                        <Button type="submit" size="sm" variant="secondary">
+                          {u.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
+                        </Button>
+                      </form>
+                    )}
+                    <DeleteUserButton userId={u.id} userLabel={u.name || u.email} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -325,33 +262,32 @@ export default async function AdminUsersPage({
         </table>
       </TableShell>
 
-      {/* Pagination links */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>
           Page {page} of {totalPages} ({total} users)
         </span>
         <div className="flex gap-2">
-        {page > 1 ? (
-          <Button variant="outline" asChild size="sm">
-            <Link href={queryStr(page - 1)}>Previous</Link>
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" disabled>
-            Previous
-          </Button>
-        )}
-        {page < totalPages ? (
-          <Button variant="outline" asChild size="sm">
-            <Link href={queryStr(page + 1)}>Next</Link>
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" disabled>
-            Next
-          </Button>
-        )}
+          {page > 1 ? (
+            <Button variant="outline" asChild size="sm">
+              <Link href={queryStr(page - 1)}>Previous</Link>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled>
+              Previous
+            </Button>
+          )}
+          {page < totalPages ? (
+            <Button variant="outline" asChild size="sm">
+              <Link href={queryStr(page + 1)}>Next</Link>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled>
+              Next
+            </Button>
+          )}
         </div>
       </div>
-      <Toaster />
+      <Toaster richColors />
     </div>
   );
 }

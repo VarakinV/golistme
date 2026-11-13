@@ -8,12 +8,14 @@ import { Pager } from '@/components/admin/ui/pager';
 import { SearchField } from '@/components/admin/ui/search-field';
 import { EmptyState } from '@/components/admin/ui/empty-state';
 import { TableShell } from '@/components/admin/ui/table-shell';
-import { Toolbar, IconAction, DeleteIconButton } from '@/components/admin/ui/icon-action';
+import { Toolbar, IconAction } from '@/components/admin/ui/icon-action';
+import { QrDeleteButton } from '@/components/qr/QrDeleteButton';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { QRCodeStatsDialog } from '@/components/qr/QRCodeStatsDialog';
 import { QRCodeReassignDialog } from '@/components/qr/QRCodeReassignDialog';
 import { Loader2, TrendingUp, Edit } from 'lucide-react';
+import { requestPermission, showErrorDialog } from '@/lib/ui/feedback';
 
 interface QRCode {
   id: string;
@@ -53,6 +55,19 @@ export default function PortalQRCodesPage() {
   const [selectedQR, setSelectedQR] = useState<QRCode | null>(null);
   const [showStats, setShowStats] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
+  const [canManage, setCanManage] = useState(true);
+  const [canViewStats, setCanViewStats] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/auth/context')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setCanManage(Boolean(data.canManageListings));
+        setCanViewStats(Boolean(data.canViewAnalytics || data.canViewLeads));
+      })
+      .catch(() => {});
+  }, []);
 
   async function loadQRCodes() {
     setLoading(true);
@@ -61,11 +76,11 @@ export default function PortalQRCodesPage() {
       if (res.ok) {
         setQrCodes(await res.json());
       } else {
-        toast.error('Failed to load QR codes');
+        showErrorDialog('Failed to load QR codes');
       }
     } catch (e) {
       console.error(e);
-      toast.error('Failed to load QR codes');
+      showErrorDialog('Failed to load QR codes');
     } finally {
       setLoading(false);
     }
@@ -105,36 +120,28 @@ export default function PortalQRCodesPage() {
   );
 
   function handleShowStats(qr: QRCode) {
+    if (!canViewStats) {
+      requestPermission('view QR statistics');
+      return;
+    }
     setSelectedQR(qr);
     setShowStats(true);
   }
 
   function handleReassign(qr: QRCode) {
+    if (!canManage) {
+      requestPermission('reassign QR codes');
+      return;
+    }
     setSelectedQR(qr);
     setShowReassign(true);
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this QR code?')) {
+  async function handleToggleWeeklyStats(assignmentId: string, enabled: boolean) {
+    if (!canManage) {
+      requestPermission('change QR code settings');
       return;
     }
-
-    try {
-      const res = await fetch(`/api/qr/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        toast.success('QR code deleted');
-        setQrCodes((list) => list.filter((x) => x.id !== id));
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to delete QR code');
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error('Failed to delete QR code');
-    }
-  }
-
-  async function handleToggleWeeklyStats(assignmentId: string, enabled: boolean) {
     try {
       const res = await fetch(`/api/qr/${assignmentId}/send-stats`, {
         method: 'PATCH',
@@ -153,18 +160,18 @@ export default function PortalQRCodesPage() {
         );
       } else {
         const data = await res.json();
-        toast.error(data.error || 'Failed to update preference');
+        showErrorDialog(data.error || 'Failed to update preference');
       }
     } catch (e) {
       console.error(e);
-      toast.error('Failed to update preference');
+      showErrorDialog('Failed to update preference');
     }
   }
 
   return (
     <div className="w-full space-y-6">
       <PageHead title="My QR Codes" subtitle="Manage QR codes for your property listings" />
-      <Toaster position="bottom-right" />
+      <Toaster richColors position="bottom-right" />
 
       {loading ? (
         <div className="flex h-64 items-center justify-center">
@@ -281,9 +288,13 @@ export default function PortalQRCodesPage() {
                             label="Reassign"
                             onClick={() => handleReassign(qr)}
                           />
-                          <DeleteIconButton
-                            label="Delete QR code"
-                            onClick={() => handleDelete(qr.id)}
+                          <QrDeleteButton
+                            qrCodeId={qr.id}
+                            label={qr.displayId}
+                            canDelete={canManage}
+                            onDeleted={() =>
+                              setQrCodes((list) => list.filter((x) => x.id !== qr.id))
+                            }
                           />
                         </div>
                       </td>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
-import { auth } from '@/lib/auth/auth';
+import { requireListingPermission, WorkspaceAccessError } from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import { isS3Available, uploadBufferToS3WithPath } from '@/lib/utils/s3';
 import { renderSocialPost } from '@/lib/social/generator';
@@ -16,18 +16,14 @@ function getBaseUrlFromHeaders(req: NextRequest): string {
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; postId: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!isS3Available()) return NextResponse.json({ error: 'S3 not configured' }, { status: 503 });
-
     const { id, postId } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
+    await requireListingPermission(id, 'GENERATE_MARKETING');
+    if (!isS3Available()) return NextResponse.json({ error: 'S3 not configured' }, { status: 503 });
 
     const post = await prisma.orderSocialPost.findUnique({ where: { id: postId } });
     if (!post || post.orderId !== id) return NextResponse.json({ error: 'Post not found' }, { status: 404 });
 
-    const order = await prisma.order.findUnique({
+    const order = await prisma.listing.findUnique({
       where: { id },
       include: {
         realtor: {
@@ -44,10 +40,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     });
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
 
     const sources = await prisma.orderReelSourceImage.findMany({ where: { orderId: id }, orderBy: { sortOrder: 'asc' } });
     if (sources.length < 1) return NextResponse.json({ error: 'At least 1 image required' }, { status: 400 });
@@ -118,6 +110,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Render failed', details: String(err?.message || err) }, { status: 400 });
     }
   } catch (e) {
+    if (e instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error(e);
     return NextResponse.json({ error: 'Render request failed' }, { status: 500 });
   }

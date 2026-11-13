@@ -12,10 +12,16 @@ import { VideosUploader } from '@/components/orders/videos-uploader';
 import { VideosGrid } from '@/components/orders/videos-grid';
 import { FloorplansUploader } from '@/components/orders/floorplans-uploader';
 import { FloorplansGrid } from '@/components/orders/floorplans-grid';
-import { AttachmentsUploader } from '@/components/orders/attachments-uploader';
-import { AttachmentsList } from '@/components/orders/attachments-list';
 import { EmbedsForm } from '@/components/orders/embeds-form';
 import { EmbedsList } from '@/components/orders/embeds-list';
+import { ReelImagesUploader } from '@/components/orders/reel-images-uploader';
+import { ReelImagesGrid } from '@/components/orders/reel-images-grid';
+import { GenerateReelsRemotionButton } from '@/components/orders/generate-reels-remotion-button';
+import ReelsList from '@/components/orders/reels-list';
+import { GenerateSocialPostsButton } from '@/components/orders/generate-social-posts-button';
+import SocialPostsList from '@/components/orders/social-posts-list';
+import { GenerateFlyersButton } from '@/components/orders/generate-flyers-button';
+import FlyersList from '@/components/orders/flyers-list';
 import { sanitizeDescription } from '@/lib/sanitize';
 import PlacesAddressInput from '@/components/admin/PlacesAddressInput';
 import DescriptionEditor from '@/components/admin/DescriptionEditor';
@@ -25,17 +31,21 @@ import {
   Images,
   Film,
   Ruler,
-  Paperclip,
   Link2,
   QrCode,
   ChevronLeft,
+  Clapperboard,
+  Share2,
+  FileText,
 } from 'lucide-react';
 import { StatusPill } from '@/components/admin/ui/status-pill';
 import { OrderQRCodes } from '@/components/orders/OrderQRCodes';
+import { DeleteListingButton } from '@/components/portal/delete-listing-button';
+import { requestPermission, showErrorDialog } from '@/lib/ui/feedback';
 
 interface Order {
   id: string;
-  realtor: { id: string; firstName: string; lastName: string };
+  realtor: { id: string; firstName: string; lastName: string; name?: string | null };
   propertyAddress: string;
   propertyFormattedAddress?: string | null;
   propertyLat?: number | null;
@@ -56,21 +66,42 @@ interface Order {
   bathrooms?: string | null;
   featuresText?: string | null;
   description?: string | null;
-  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  status: 'DRAFT' | 'ACTIVE' | 'SOLD';
   slug: string;
 }
 
-export function PortalOrderDetails({ orderId }: { orderId: string }) {
+export function PortalOrderDetails({
+  orderId,
+  canManageListings = true,
+  canGenerateMarketing = true,
+  canViewAnalytics = true,
+  canViewLeads = true,
+}: {
+  orderId: string;
+  canManageListings?: boolean;
+  canGenerateMarketing?: boolean;
+  canViewAnalytics?: boolean;
+  canViewLeads?: boolean;
+}) {
   const [order, setOrder] = useState<Order | null>(null);
   const [tab, setTab] = useState<
-    'property' | 'photos' | 'videos' | 'floor' | 'attach' | 'embed' | 'qr'
+    'property' | 'photos' | 'videos' | 'floor' | 'reels' | 'flyers' | 'social' | 'embed' | 'qr'
   >('property');
   const [photoRefresh, setPhotoRefresh] = useState(0);
   const [videoRefresh, setVideoRefresh] = useState(0);
   const [floorRefresh, setFloorRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  type TabKey = 'property' | 'photos' | 'videos' | 'floor' | 'attach' | 'embed' | 'qr';
+  type TabKey =
+    | 'property'
+    | 'photos'
+    | 'videos'
+    | 'floor'
+    | 'reels'
+    | 'flyers'
+    | 'social'
+    | 'embed'
+    | 'qr';
   type TabDef = { key: TabKey; label: string; icon: React.ElementType };
 
   const tabsList: TabDef[] = [
@@ -78,12 +109,16 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
     { key: 'photos', label: 'Photos', icon: Images },
     { key: 'videos', label: 'Videos', icon: Film },
     { key: 'floor', label: 'Floor Plans', icon: Ruler },
-    { key: 'attach', label: 'PDFs', icon: Paperclip },
-    { key: 'embed', label: 'iGUIDE', icon: Link2 },
+    { key: 'reels', label: 'Reels', icon: Clapperboard },
+    { key: 'flyers', label: 'Flyers', icon: FileText },
+    { key: 'social', label: 'Social Posts', icon: Share2 },
+    { key: 'embed', label: '3D Virtual Tour', icon: Link2 },
     { key: 'qr', label: 'QR Codes', icon: QrCode },
   ];
 
-  const [attachRefresh, setAttachRefresh] = useState(0);
+  const [reelRefresh, setReelRefresh] = useState(0);
+  const [flyerRefresh, setFlyerRefresh] = useState(0);
+  const [socialRefresh, setSocialRefresh] = useState(0);
   const [embedRefresh, setEmbedRefresh] = useState(0);
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState<{
@@ -98,7 +133,11 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
       try {
         const res = await fetch(`/api/orders/${orderId}`);
         if (res.ok) setOrder(await res.json());
-        else toast.error('Failed to load order');
+        else
+        showErrorDialog(
+          'The listing could not be loaded. Please refresh the page and try again.',
+          'Could not load listing'
+        );
       } finally {
         setLoading(false);
       }
@@ -119,30 +158,40 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
         href="/portal/orders"
         className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground hover:text-brick-600"
       >
-        <ChevronLeft className="h-4 w-4" /> All orders
+        <ChevronLeft className="h-4 w-4" /> All listings
       </Link>
 
       {/* Title row */}
-      <div className="mb-5">
-        {order && <StatusPill status={order.status} />}
-        <h2 className="font-display mt-1.5 text-[22px] font-semibold leading-tight sm:text-[23px]">
-          {order
-            ? order.propertyFormattedAddress || order.propertyAddress
-            : 'Order'}
-        </h2>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
-          {order && (
-            <span>
-              {order.realtor.firstName} {order.realtor.lastName}
-            </span>
-          )}
-          {order?.mlsNumber && (
-            <>
-              <span className="h-[3px] w-[3px] rounded-full bg-faint" />
-              <span>MLS# {order.mlsNumber}</span>
-            </>
-          )}
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          {order && <StatusPill status={order.status} />}
+          <h2 className="font-display mt-1.5 text-[22px] font-semibold leading-tight sm:text-[23px]">
+            {order
+              ? order.propertyFormattedAddress || order.propertyAddress
+              : 'Order'}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+            {order && (
+              <span>
+                {[order.realtor.firstName, order.realtor.lastName].filter(Boolean).join(' ') || order.realtor.name}
+              </span>
+            )}
+            {order?.mlsNumber && (
+              <>
+                <span className="h-[3px] w-[3px] rounded-full bg-faint" />
+                <span>MLS# {order.mlsNumber}</span>
+              </>
+            )}
+          </div>
         </div>
+        {order && (
+          <DeleteListingButton
+            listingId={order.id}
+            listingLabel={order.propertyFormattedAddress || order.propertyAddress}
+            redirectTo="/portal/orders"
+            canDelete={canManageListings}
+          />
+        )}
       </div>
 
       {/* Tabs */}
@@ -186,7 +235,7 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
                 <div>
                   <label className="field-label">Realtor</label>
                   <div className="text-[15px] font-semibold">
-                    {order.realtor.firstName} {order.realtor.lastName}
+                    {[order.realtor.firstName, order.realtor.lastName].filter(Boolean).join(' ') || order.realtor.name}
                   </div>
                 </div>
                 <div>
@@ -302,12 +351,19 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
                       setOrder(updated);
                       setEditing(false);
                       toast.success('Changes saved');
+                    } else if (res.status === 403) {
+                      setEditing(false);
+                      requestPermission('edit listing details');
                     } else {
-                      toast.error('Failed to save');
+                      const data = await res.json().catch(() => ({}));
+                      showErrorDialog(
+                        data.error || 'Your changes could not be saved. Please try again.',
+                        'Could not save changes'
+                      );
                     }
                   }}
                 >
-                  <div>
+                  <div className="sm:col-span-2">
                     <label className="field-label">
                       Property Address
                     </label>
@@ -328,64 +384,74 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
                         setPreview({ lat: d.lat ?? null, lng: d.lng ?? null })
                       }
                     />
-                    {preview?.lat != null && preview?.lng != null && (
-                      <div className="mt-3 aspect-video rounded overflow-hidden border">
-                        <iframe
-                          src={`https://www.google.com/maps?q=${preview.lat},${preview.lng}&z=15&output=embed`}
-                          className="w-full h-full"
-                          loading="lazy"
-                          referrerPolicy="no-referrer-when-downgrade"
-                        />
-                      </div>
-                    )}
                   </div>
-                  {/* Public display override fields */}
-                  <div className="sm:col-span-2 mt-4">
-                    <div className="field-label">
-                      Public display overrides (optional)
+
+                  <div className="sm:col-span-2 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div>
+                      {preview?.lat != null && preview?.lng != null ? (
+                        <div className="aspect-video overflow-hidden rounded border lg:aspect-auto lg:h-full lg:min-h-[220px]">
+                          <iframe
+                            src={`https://www.google.com/maps?q=${preview.lat},${preview.lng}&z=15&output=embed`}
+                            className="h-full w-full"
+                            loading="lazy"
+                            referrerPolicy="no-referrer-when-downgrade"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex aspect-video items-center justify-center rounded border bg-surface-2 text-sm text-muted-foreground lg:aspect-auto lg:h-full lg:min-h-[220px]">
+                          Map preview appears after you select an address
+                        </div>
+                      )}
                     </div>
-                    <div className="grid grid-cols-1 gap-3">
-                      <div>
-                        <label className="field-label">
-                          Override Street Address
-                        </label>
-                        <input
-                          name="propertyAddressOverride"
-                          defaultValue={order.propertyAddressOverride ?? ''}
-                          className="field"
-                          placeholder="e.g., 123A Main St, Unit 402"
-                        />
+
+                    <div className="rounded-lg border border-border bg-surface-2/40 p-4">
+                      <div className="field-label">
+                        Public display overrides (optional)
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3">
                         <div>
                           <label className="field-label">
-                            Override City
+                            Override Street Address
                           </label>
                           <input
-                            name="propertyCityOverride"
-                            defaultValue={order.propertyCityOverride ?? ''}
+                            name="propertyAddressOverride"
+                            defaultValue={order.propertyAddressOverride ?? ''}
                             className="field"
-                            placeholder="e.g., Springfield"
+                            placeholder="e.g., 123A Main St, Unit 402"
                           />
                         </div>
-                        <div>
-                          <label className="field-label">
-                            Override Postal Code
-                          </label>
-                          <input
-                            name="propertyPostalCodeOverride"
-                            defaultValue={
-                              order.propertyPostalCodeOverride ?? ''
-                            }
-                            className="field"
-                            placeholder="e.g., 12345"
-                          />
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="field-label">
+                              Override City
+                            </label>
+                            <input
+                              name="propertyCityOverride"
+                              defaultValue={order.propertyCityOverride ?? ''}
+                              className="field"
+                              placeholder="e.g., Springfield"
+                            />
+                          </div>
+                          <div>
+                            <label className="field-label">
+                              Override Postal Code
+                            </label>
+                            <input
+                              name="propertyPostalCodeOverride"
+                              defaultValue={
+                                order.propertyPostalCodeOverride ?? ''
+                              }
+                              className="field"
+                              placeholder="e.g., 12345"
+                            />
+                          </div>
                         </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          These override only the address text shown on the
+                          public property page hero. Map/coordinates remain
+                          unchanged.
+                        </p>
                       </div>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        These override only the address text shown on the public
-                        property page hero. Map/coordinates remain unchanged.
-                      </p>
                     </div>
                   </div>
 
@@ -459,7 +525,7 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
                     <textarea
                       name="featuresText"
                       defaultValue={order.featuresText ?? ''}
-                      className="field"
+                      className="field min-h-[180px] resize-y"
                       placeholder={
                         'E.g.\nQuartz countertops\nHardwood floors\nSouth-facing backyard'
                       }
@@ -472,9 +538,9 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
                       defaultValue={order.status}
                       className="field"
                     >
-                      <option value="DRAFT">Draft</option>
-                      <option value="PUBLISHED">Published</option>
-                      <option value="ARCHIVED">Archived</option>
+                <option value="DRAFT">Draft</option>
+                <option value="ACTIVE">Active</option>
+                <option value="SOLD">Sold</option>
                     </select>
                   </div>
                   <div className="sm:col-span-2 flex justify-end gap-2">
@@ -495,10 +561,14 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
               <div className="flex justify-end border-t border-border pt-4">
                 <button
                   type="button"
-                  onClick={() => setEditing(true)}
-                  className="inline-flex h-8 items-center gap-2 rounded-full border border-border px-4 text-[13px] font-semibold hover:border-navy-600 hover:bg-surface-2"
+                  onClick={() =>
+                    canManageListings
+                      ? setEditing(true)
+                      : requestPermission('edit listing details')
+                  }
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-navy-600 dark:bg-navy-600 dark:hover:bg-[#3a4d85]"
                 >
-                  Edit
+                  Edit Property Info
                 </button>
               </div>
             )}
@@ -509,9 +579,10 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
           <div className="space-y-4">
             <PhotosUploader
               orderId={order.id}
+              canManage={canManageListings}
               onUploaded={() => setPhotoRefresh((n) => n + 1)}
             />
-            <PhotosGrid orderId={order.id} refreshToken={photoRefresh} />
+            <PhotosGrid orderId={order.id} refreshToken={photoRefresh} canManage={canManageListings} />
           </div>
         )}
 
@@ -519,9 +590,10 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
           <div className="space-y-4">
             <VideosUploader
               orderId={order.id}
+              canManage={canManageListings}
               onUploaded={() => setVideoRefresh((n) => n + 1)}
             />
-            <VideosGrid orderId={order.id} refreshToken={videoRefresh} />
+            <VideosGrid orderId={order.id} refreshToken={videoRefresh} canManage={canManageListings} />
           </div>
         )}
 
@@ -529,19 +601,100 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
           <div className="space-y-4">
             <FloorplansUploader
               orderId={order.id}
+              canManage={canManageListings}
               onUploaded={() => setFloorRefresh((n) => n + 1)}
             />
-            <FloorplansGrid orderId={order.id} refreshToken={floorRefresh} />
+            <FloorplansGrid orderId={order.id} refreshToken={floorRefresh} canManage={canManageListings} />
           </div>
         )}
 
-        {tab === 'attach' && order && (
+        {tab === 'reels' && order && (
           <div className="space-y-4">
-            <AttachmentsUploader
+            <ReelImagesUploader
               orderId={order.id}
-              onUploaded={() => setAttachRefresh((n) => n + 1)}
+              onUploaded={() => setReelRefresh((n) => n + 1)}
+              refreshToken={reelRefresh}
+              canManage={canGenerateMarketing}
             />
-            <AttachmentsList orderId={order.id} refreshToken={attachRefresh} />
+            <ReelImagesGrid
+              orderId={order.id}
+              refreshToken={reelRefresh}
+              onDeleted={() => setReelRefresh((n) => n + 1)}
+              canManage={canGenerateMarketing}
+            />
+            <GenerateReelsRemotionButton
+              orderId={order.id}
+              refreshToken={reelRefresh}
+              onStarted={() => setReelRefresh((n) => n + 1)}
+              allowed={canGenerateMarketing}
+            />
+            <ReelsList
+              orderId={order.id}
+              refreshToken={reelRefresh}
+              canGenerate={canGenerateMarketing}
+            />
+          </div>
+        )}
+
+        {tab === 'flyers' && order && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-[12.8px] text-muted-foreground">
+              Uses the same images uploaded under the <strong>Reels</strong> tab. Re-upload,
+              reorder, or delete them there if needed.
+            </div>
+            <ReelImagesUploader
+              orderId={order.id}
+              onUploaded={() => setFlyerRefresh((n) => n + 1)}
+              refreshToken={flyerRefresh}
+              canManage={canGenerateMarketing}
+            />
+            <ReelImagesGrid
+              orderId={order.id}
+              refreshToken={flyerRefresh}
+              onDeleted={() => setFlyerRefresh((n) => n + 1)}
+              canManage={canGenerateMarketing}
+            />
+            <GenerateFlyersButton
+              orderId={order.id}
+              onStarted={() => setFlyerRefresh((n) => n + 1)}
+              allowed={canGenerateMarketing}
+            />
+            <FlyersList
+              orderId={order.id}
+              refreshToken={flyerRefresh}
+              canGenerate={canGenerateMarketing}
+            />
+          </div>
+        )}
+
+        {tab === 'social' && order && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-[12.8px] text-muted-foreground">
+              Uses the same images uploaded under the <strong>Reels</strong> tab. Re-upload,
+              reorder, or delete them there if needed.
+            </div>
+            <ReelImagesUploader
+              orderId={order.id}
+              onUploaded={() => setSocialRefresh((n) => n + 1)}
+              refreshToken={socialRefresh}
+              canManage={canGenerateMarketing}
+            />
+            <ReelImagesGrid
+              orderId={order.id}
+              refreshToken={socialRefresh}
+              onDeleted={() => setSocialRefresh((n) => n + 1)}
+              canManage={canGenerateMarketing}
+            />
+            <GenerateSocialPostsButton
+              orderId={order.id}
+              onStarted={() => setSocialRefresh((n) => n + 1)}
+              allowed={canGenerateMarketing}
+            />
+            <SocialPostsList
+              orderId={order.id}
+              refreshToken={socialRefresh}
+              canGenerate={canGenerateMarketing}
+            />
           </div>
         )}
 
@@ -550,18 +703,23 @@ export function PortalOrderDetails({ orderId }: { orderId: string }) {
             <EmbedsForm
               orderId={order.id}
               onAdded={() => setEmbedRefresh((n) => n + 1)}
+              canManage={canManageListings}
             />
-            <EmbedsList orderId={order.id} refreshToken={embedRefresh} />
+            <EmbedsList
+              orderId={order.id}
+              refreshToken={embedRefresh}
+              canManage={canManageListings}
+            />
           </div>
         )}
 
         {tab === 'qr' && order && (
           <div className="space-y-4">
-            <OrderQRCodes orderId={order.id} />
+            <OrderQRCodes orderId={order.id} canManage={canManageListings} canViewStats={canViewAnalytics || canViewLeads} />
           </div>
         )}
       </div>
-      <Toaster />
+      <Toaster richColors />
     </div>
   );
 }

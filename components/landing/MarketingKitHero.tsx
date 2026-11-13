@@ -25,14 +25,14 @@ export function MarketingKitHero() {
           Get the Complete Marketing Kit for Every Listing
         </h1>
         <p className="mt-6 text-lg sm:text-xl text-white/90 max-w-2xl mx-auto">
-          Every Photos 4 Real Estate package includes{' '}
+          Every GoList.me package includes{' '}
           <span className="text-white font-semibold">9 reels</span>,{' '}
           <span className="text-white font-semibold">2 slideshows</span>,{' '}
           <span className="text-white font-semibold">3 PDF flyers</span>, and{' '}
           <span className="text-white font-semibold">3 property websites</span> — all included.
         </p>
         <a
-          href="https://photos4realestate.ca/book-online/"
+          href="https://golist.me/book-online/"
           target="_blank"
           rel="noopener noreferrer"
           className="mt-10 inline-flex items-center justify-center rounded-md bg-white text-[#ca4153] font-semibold px-8 py-4 text-lg shadow-lg hover:opacity-90 transition-all duration-200 hover:scale-105"

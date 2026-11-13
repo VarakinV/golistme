@@ -4,7 +4,7 @@
 
 Your AWS S3 is **fully configured and working**!
 
-- **Bucket**: photos4remedia
+- **Bucket**: golistme-media
 - **Region**: Configured
 - **Credentials**: Valid and tested
 
@@ -87,7 +87,7 @@ If you encounter any issues:
    AWS_REGION=your-region
    AWS_ACCESS_KEY_ID=your-access-key
    AWS_SECRET_ACCESS_KEY=your-secret-key
-   AWS_S3_BUCKET_NAME=photos4remedia
+   AWS_S3_BUCKET_NAME=golistme-media
    ```
 
 3. **Restart Development Server**: After changing environment variables:
@@ -104,7 +104,7 @@ If you encounter any issues:
 Your uploads are organized as follows:
 
 ```
-photos4remedia/
+golistme-media/
 └── realtors/
     └── headshots/
         ├── uuid1.jpg

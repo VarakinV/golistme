@@ -11,84 +11,80 @@ function getMonthRange(year: number, monthIndex: number) {
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const me = session?.user as any | null;
+    if (!me?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (me.platformRole !== "ADMIN" && me.platformRole !== "SUPERADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const search = req.nextUrl.searchParams;
     const yearParam = search.get("year");
     const now = new Date();
     const year = yearParam ? Number(yearParam) : now.getUTCFullYear();
-    const { start: monthStart, end: monthEnd } = getMonthRange(now.getUTCFullYear(), now.getUTCMonth());
+    const { start: monthStart, end: monthEnd } = getMonthRange(
+      now.getUTCFullYear(),
+      now.getUTCMonth()
+    );
 
-    // Total orders all-time for this account
-    const totalAllTime = await prisma.order.count({
-      where: { realtor: { userId: session.user.id } },
-    });
+    const [totalAllTime, totalThisMonth, listingRows, paymentRows] = await Promise.all([
+      prisma.listing.count(),
+      prisma.listing.count({
+        where: { createdAt: { gte: monthStart, lt: monthEnd } },
+      }),
+      prisma.$queryRaw<{ month: number; count: number }[]>`
+        SELECT EXTRACT(MONTH FROM "createdAt")::int AS month, COUNT(*)::int AS count
+        FROM "Listing"
+        WHERE EXTRACT(YEAR FROM "createdAt") = ${year}
+        GROUP BY 1
+      `,
+      prisma.$queryRaw<{ month: number; sum: string | number; count: number }[]>`
+        SELECT EXTRACT(MONTH FROM "createdAt")::int AS month,
+               COALESCE(SUM("amountCents"), 0) AS sum,
+               COUNT(*)::int AS count
+        FROM "Payment"
+        WHERE status = 'SUCCEEDED'
+          AND EXTRACT(YEAR FROM "createdAt") = ${year}
+        GROUP BY 1
+      `,
+    ]);
 
-    // Total orders this month
-    const totalThisMonth = await prisma.order.count({
-      where: {
-        realtor: { userId: session.user.id },
-        createdAt: { gte: monthStart, lt: monthEnd },
-      },
-    });
-
-    // Orders by month for selected year (12 counts)
-    const byMonthPromises: Promise<number>[] = [];
-    for (let m = 0; m < 12; m++) {
-      const { start, end } = getMonthRange(year, m);
-      byMonthPromises.push(
-        prisma.order.count({ where: { realtor: { userId: session.user.id }, createdAt: { gte: start, lt: end } } })
-      );
+    const byMonthCounts = Array.from({ length: 12 }, () => 0);
+    for (const row of listingRows) {
+      byMonthCounts[row.month - 1] = Number(row.count);
     }
-    const byMonthCounts = await Promise.all(byMonthPromises);
 
-    // AOV by month for selected year (from Booking.totalCents)
-    const aovByMonthPromises: Promise<{ sum: number; count: number }>[] = [];
-    for (let m = 0; m < 12; m++) {
-      const { start, end } = getMonthRange(year, m);
-      aovByMonthPromises.push(
-        prisma.booking
-          .aggregate({
-            where: {
-              adminId: session.user.id,
-              createdAt: { gte: start, lt: end },
-            },
-            _sum: { totalCents: true },
-            _count: true,
-          })
-          .then((r) => ({
-            sum: (r._sum.totalCents as number) || 0,
-            count: r._count,
-          }))
-      );
+    const aovByMonthSeries = Array.from({ length: 12 }, () => 0);
+    for (const row of paymentRows) {
+      const count = Number(row.count);
+      if (count > 0) {
+        aovByMonthSeries[row.month - 1] = Math.round(Number(row.sum) / count);
+      }
     }
-    const aovByMonthRaw = await Promise.all(aovByMonthPromises);
-    const aovByMonthSeries = aovByMonthRaw.map((r) => (r.count > 0 ? Math.round(r.sum / r.count) : 0));
 
-    // Top realtors this month (by number of orders)
-    const grouped = await prisma.order.groupBy({
+    const grouped = await prisma.listing.groupBy({
       by: ["realtorId"],
-      where: { realtor: { userId: session.user.id }, createdAt: { gte: monthStart, lt: monthEnd } },
-      _count: { id: true },
+      where: { createdAt: { gte: monthStart, lt: monthEnd } },
+      _count: { _all: true },
     });
 
     const realtorIds = grouped.map((g) => g.realtorId);
     const realtors = realtorIds.length
-      ? await prisma.realtor.findMany({
+      ? await prisma.realtorWorkspace.findMany({
           where: { id: { in: realtorIds } },
-          select: { id: true, firstName: true, lastName: true, headshot: true },
+          select: { id: true, name: true, firstName: true, lastName: true, headshot: true },
         })
       : [];
     const realtorMap = new Map(realtors.map((r) => [r.id, r] as const));
     const topRealtors = grouped
-      .map((g) => ({ count: g._count.id as number, realtor: realtorMap.get(g.realtorId) }))
+      .map((g) => ({
+        count: g._count?._all ?? 0,
+        realtor: realtorMap.get(g.realtorId),
+      }))
       .filter((x) => x.realtor)
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    // Last 5 orders
-    const lastOrders = await prisma.order.findMany({
-      where: { realtor: { userId: session.user.id } },
+    const lastOrders = await prisma.listing.findMany({
       orderBy: { createdAt: "desc" },
       take: 5,
       select: {
@@ -96,7 +92,7 @@ export async function GET(req: NextRequest) {
         propertyAddress: true,
         createdAt: true,
         status: true,
-        realtor: { select: { firstName: true, lastName: true } },
+        realtor: { select: { name: true, firstName: true, lastName: true } },
       },
     });
 
@@ -112,4 +108,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to load dashboard stats" }, { status: 500 });
   }
 }
-

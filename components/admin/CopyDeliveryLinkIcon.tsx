@@ -5,18 +5,18 @@ import { Link as LinkIcon } from 'lucide-react';
 import { useState } from 'react';
 
 export function CopyDeliveryLinkIcon({
-  orderId,
+  slug,
   disabled,
 }: {
-  orderId: string;
+  slug: string;
   disabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  const url = `${window.location.origin}/delivery/${orderId}`;
+  const url = `${window.location.origin}/p/${slug}`;
 
   async function onClick() {
     try {
-      // Open delivery page in a new tab (keep this synchronous to preserve user-gesture context)
+      // Open the public listing page in a new tab (keep this synchronous to preserve user-gesture context)
       window.open(url, '_blank', 'noopener,noreferrer');
       // Also copy the link to clipboard
       await navigator.clipboard.writeText(url);

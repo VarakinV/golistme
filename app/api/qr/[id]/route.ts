@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { auth } from '@/lib/auth/auth';
+import { getAuthContext, hasPermission, isPlatformAdmin } from '@/lib/auth/workspace';
 import { deleteFromS3 } from '@/lib/utils/s3';
 
 export async function DELETE(
@@ -8,15 +8,18 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const ctx = await getAuthContext();
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(ctx, 'MANAGE_LISTINGS')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
     }
 
     const { id } = await params;
-    const user = session.user as any;
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    const realtorId = user?.realtorId as string | undefined;
+    const isAdmin = isPlatformAdmin(ctx);
+    const realtorId = ctx.workspaceId;
+    const currentUserId = ctx.userId;
 
     const qrCode = await prisma.qRCode.findUnique({
       where: { id },
@@ -35,7 +38,7 @@ export async function DELETE(
     }
 
     if (!isAdmin) {
-      if (qrCode.createdByUserId !== session.user.id) {
+      if (qrCode.createdByUserId !== currentUserId) {
         const currentAssignment = qrCode.assignments[0];
         if (!currentAssignment || currentAssignment.order.realtorId !== realtorId) {
           return NextResponse.json({ error: 'QR code not found' }, { status: 404 });
@@ -45,10 +48,13 @@ export async function DELETE(
 
     const printables = await prisma.qRPrintable.findMany({
       where: { qrCodeId: id },
-      select: { pngUrl: true, pdfUrl: true },
+      select: { svgUrl: true, pngUrl: true, pdfUrl: true },
     });
 
     for (const printable of printables) {
+      if (printable.svgUrl) {
+        await deleteFromS3(printable.svgUrl);
+      }
       if (printable.pngUrl) {
         await deleteFromS3(printable.pngUrl);
       }

@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { X } from 'lucide-react';
 
 interface QRCodeStatsDialogProps {
   qrCodeId: string;
@@ -56,6 +54,7 @@ interface StatsData {
     createdAt: string;
   };
   assignments: AssignmentStats[];
+  view?: { leads: boolean; analytics: boolean };
 }
 
 export function QRCodeStatsDialog({ qrCodeId, displayId, onClose }: QRCodeStatsDialogProps) {
@@ -145,27 +144,31 @@ export function QRCodeStatsDialog({ qrCodeId, displayId, onClose }: QRCodeStatsD
             {selectedAssignment && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <div className="text-sm text-blue-600">Total Scans</div>
-                    <div className="text-2xl font-bold text-blue-900">
-                      {selectedAssignment.totalScans}
+                  {stats.view?.analytics !== false && (
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <div className="text-sm text-blue-600">Total Scans</div>
+                      <div className="text-2xl font-bold text-blue-900">
+                        {selectedAssignment.totalScans}
+                      </div>
+                      <div className="text-xs text-blue-600">
+                        Last 7 days: {selectedAssignment.recentScans}
+                      </div>
                     </div>
-                    <div className="text-xs text-blue-600">
-                      Last 7 days: {selectedAssignment.recentScans}
+                  )}
+                  {stats.view?.leads !== false && (
+                    <div className="bg-green-50 p-4 rounded-lg">
+                      <div className="text-sm text-green-600">Total Leads</div>
+                      <div className="text-2xl font-bold text-green-900">
+                        {selectedAssignment.totalLeads}
+                      </div>
+                      <div className="text-xs text-green-600">
+                        Last 7 days: {selectedAssignment.recentLeads}
+                      </div>
                     </div>
-                  </div>
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <div className="text-sm text-green-600">Total Leads</div>
-                    <div className="text-2xl font-bold text-green-900">
-                      {selectedAssignment.totalLeads}
-                    </div>
-                    <div className="text-xs text-green-600">
-                      Last 7 days: {selectedAssignment.recentLeads}
-                    </div>
-                  </div>
+                  )}
                 </div>
 
-                {selectedAssignment.leads.length > 0 && (
+                {stats.view?.leads !== false && selectedAssignment.leads.length > 0 && (
                   <div>
                     <h4 className="font-semibold mb-2">Leads</h4>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -185,7 +188,7 @@ export function QRCodeStatsDialog({ qrCodeId, displayId, onClose }: QRCodeStatsD
                   </div>
                 )}
 
-                {selectedAssignment.scans.length > 0 && (
+                {stats.view?.analytics !== false && selectedAssignment.scans.length > 0 && (
                   <div>
                     <h4 className="font-semibold mb-2">Recent Scans</h4>
                     <div className="space-y-1 max-h-40 overflow-y-auto text-sm">

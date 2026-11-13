@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Loader2, Music2, RefreshCw } from 'lucide-react';
 import { DeleteIconButton } from '@/components/admin/ui/icon-action';
+import { requestPermission, showErrorDialog } from '@/lib/ui/feedback';
 
 function statusColor(s: string) {
   switch (s) {
@@ -81,9 +82,11 @@ function providerBadge(provider?: string) {
 export default function ReelsList({
   orderId,
   refreshToken = 0,
+  canGenerate = true,
 }: {
   orderId: string;
   refreshToken?: number;
+  canGenerate?: boolean;
 }) {
   const [reels, setReels] = useState<any[]>([]);
   const [tracks, setTracks] = useState<{ id: string; name: string; duration: number }[]>([]);
@@ -102,7 +105,7 @@ export default function ReelsList({
       if (!res.ok) throw new Error(json?.error || 'Failed to load');
       setReels(json);
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     } finally {
       setLoading(false);
     }
@@ -125,7 +128,7 @@ export default function ReelsList({
       toast.success(musicTrackId ? 'Re-rendering with new music' : 'Re-rendering without music');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     } finally {
       setChangingMusicId(null);
     }
@@ -151,6 +154,10 @@ export default function ReelsList({
   }, []);
 
   const onRetry = async (rid: string) => {
+    if (!canGenerate) {
+      requestPermission('generate or regenerate reels');
+      return;
+    }
     try {
       const res = await fetch(`/api/orders/${orderId}/reels/${rid}/retry`, {
         method: 'POST',
@@ -160,11 +167,15 @@ export default function ReelsList({
       toast.success('Render re-submitted');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     }
   };
 
   const onCancel = async (rid: string) => {
+    if (!canGenerate) {
+      requestPermission('cancel reel renders');
+      return;
+    }
     try {
       const res = await fetch(`/api/orders/${orderId}/reels/${rid}/cancel`, {
         method: 'POST',
@@ -174,7 +185,7 @@ export default function ReelsList({
       toast.success('Render cancelled');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     }
   };
   // Manual load and refresh triggers
@@ -234,6 +245,10 @@ export default function ReelsList({
   }, [hasActive, reels]);
 
   const onDelete = async (rid: string) => {
+    if (!canGenerate) {
+      requestPermission('delete reels');
+      return;
+    }
     setDeletingId(rid);
     try {
       const res = await fetch(`/api/orders/${orderId}/reels/${rid}/delete`, {
@@ -244,7 +259,7 @@ export default function ReelsList({
       toast.success('Reel deleted');
       await load();
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      showErrorDialog(e.message || String(e));
     } finally {
       setDeletingId(null);
     }
@@ -283,7 +298,7 @@ export default function ReelsList({
                   toast.success('Statuses synced');
                   await load();
                 } catch (e: any) {
-                  toast.error(e.message || String(e));
+                  showErrorDialog(e.message || String(e));
                 }
               }}
             >
@@ -420,7 +435,7 @@ export default function ReelsList({
                                     toast.success('Storage synced to S3');
                                     await load();
                                   } catch (e: any) {
-                                    toast.error(e.message || String(e));
+                                    showErrorDialog(e.message || String(e));
                                   }
                                 }}
                               >

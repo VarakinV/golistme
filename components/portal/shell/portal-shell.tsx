@@ -4,7 +4,18 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import { ChevronLeft, LogOut, Menu, Settings, UserRound, X } from 'lucide-react';
+import {
+  Building2,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  LogOut,
+  Menu,
+  Settings,
+  UserRound,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +33,8 @@ import {
   getPortalRouteMeta,
   isPortalNavActive,
 } from './portal-nav-config';
+import { CreateListingButton } from '@/components/portal/create-listing-button';
+import { FeedbackDialogHost } from '@/components/portal/feedback-dialog';
 
 const SIDEBAR_COLLAPSED_KEY = 'portal-sidebar-collapsed';
 
@@ -38,16 +51,57 @@ export function PortalShell({
   children,
   user,
   isAdmin,
+  workspaces = [],
+  activeWorkspaceId = null,
+  activeWorkspaceLabel = '',
+  activeIsAssistant = false,
+  canManageListings = true,
+  canViewLeads = true,
 }: {
   children: React.ReactNode;
   user: any;
   isAdmin: boolean;
+  workspaces?: {
+    id: string;
+    label: string;
+    name: string;
+    role: 'OWNER' | 'ASSISTANT';
+  }[];
+  activeWorkspaceId?: string | null;
+  activeWorkspaceLabel?: string;
+  activeIsAssistant?: boolean;
+  canManageListings?: boolean;
+  canViewLeads?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const { status } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
+
+  async function switchWorkspace(workspaceId: string) {
+    if (workspaceId === activeWorkspaceId || switching) return;
+    setSwitching(true);
+    try {
+      const res = await fetch('/api/workspace/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to switch workspace');
+
+      setMobileOpen(false);
+      toast.success('Workspace switched');
+      router.push('/portal');
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Failed to switch workspace');
+    } finally {
+      setSwitching(false);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -87,6 +141,7 @@ export function PortalShell({
   return (
     <div className="min-h-screen">
       <LoginSuccessToaster />
+      <FeedbackDialogHost ownerName={activeWorkspaceLabel} />
       {/* Mobile backdrop */}
       <div
         aria-hidden={!mobileOpen}
@@ -129,7 +184,7 @@ export function PortalShell({
           </svg>
           <div className={`min-w-0 whitespace-nowrap ${collapsed ? 'lg:hidden' : ''}`}>
             <div className="font-display text-[15px] font-semibold leading-tight text-white">
-              Photos 4 Real Estate
+              GoList.me
             </div>
             <div className="text-[11.5px] text-[#8791b8]">Client portal</div>
           </div>
@@ -145,56 +200,112 @@ export function PortalShell({
 
         {/* Nav */}
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-4 [scrollbar-width:thin]">
-          <ul>
-            {PORTAL_NAV_ITEMS.map((it) => {
-              const active = isPortalNavActive(pathname, it.href);
-              const Icon = it.icon;
-              return (
-                <li key={it.href} className="my-0.5">
-                  <Link
-                    href={it.href}
-                    onClick={() => setMobileOpen(false)}
-                    title={it.label}
-                    aria-current={active ? 'page' : undefined}
-                    className={`flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13.5px] font-medium transition-colors ${
-                      active
-                        ? 'bg-brick-500 text-white'
-                        : 'text-[#c9cfe6] hover:bg-white/[0.06] hover:text-white'
-                    } ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}
+          {(['main', 'manage'] as const).map((section) => {
+            const items = PORTAL_NAV_ITEMS.filter(
+              (it) =>
+                (it.section ?? 'main') === section &&
+                (canViewLeads || it.href !== '/portal/leads')
+            );
+            if (!items.length) return null;
+
+            return (
+              <div key={section} className={section === 'manage' ? 'mt-4' : ''}>
+                {section === 'manage' && (
+                  <div
+                    className={`px-2.5 pb-1 text-[10.5px] font-semibold uppercase tracking-wider text-[#7f88ad] ${
+                      collapsed ? 'lg:hidden' : ''
+                    }`}
                   >
-                    <Icon
-                      className={`h-[18px] w-[18px] shrink-0 ${
-                        active ? 'text-white' : 'text-[#9aa2c6]'
-                      }`}
-                    />
-                    <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>
-                      {it.label}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                    Manage
+                  </div>
+                )}
+                {section === 'manage' && workspaces.length > 1 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={switching}
+                        title="Workspaces"
+                        className={`mb-0.5 flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13.5px] font-medium text-[#c9cfe6] transition-colors hover:bg-white/[0.06] hover:text-white ${
+                          collapsed ? 'lg:justify-center lg:px-0' : ''
+                        } ${switching ? 'opacity-60' : ''}`}
+                      >
+                        <Building2 className="h-[18px] w-[18px] shrink-0 text-[#9aa2c6]" />
+                        <span
+                          className={`flex-1 truncate text-left ${
+                            collapsed ? 'lg:hidden' : ''
+                          }`}
+                        >
+                          Workspaces
+                        </span>
+                        <ChevronDown
+                          className={`h-4 w-4 ${collapsed ? 'lg:hidden' : ''}`}
+                        />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-60">
+                      <DropdownMenuLabel>Switch workspace</DropdownMenuLabel>
+                      {workspaces.map((workspace) => (
+                        <DropdownMenuItem
+                          key={workspace.id}
+                          onSelect={() => switchWorkspace(workspace.id)}
+                          disabled={switching}
+                        >
+                          <Building2 className="h-4 w-4" />
+                          <span className="flex-1 truncate">
+                            {workspace.label}
+                          </span>
+                          {workspace.id === activeWorkspaceId && (
+                            <Check className="h-4 w-4" />
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                <ul>
+                  {items.map((it) => {
+                    const active = isPortalNavActive(pathname, it.href);
+                    const Icon = it.icon;
+                    return (
+                      <li key={it.href} className="my-0.5">
+                        <Link
+                          href={it.href}
+                          onClick={() => setMobileOpen(false)}
+                          title={it.label}
+                          aria-current={active ? 'page' : undefined}
+                          className={`flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13.5px] font-medium transition-colors ${
+                            active
+                              ? 'bg-brick-500 text-white'
+                              : 'text-[#c9cfe6] hover:bg-white/[0.06] hover:text-white'
+                          } ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}
+                        >
+                          <Icon
+                            className={`h-[18px] w-[18px] shrink-0 ${
+                              active ? 'text-white' : 'text-[#9aa2c6]'
+                            }`}
+                          />
+                          <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>
+                            {it.label}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
         </nav>
 
-        {/* Book online CTA */}
+        {/* Create listing CTA */}
         <div className={`shrink-0 border-t border-white/[0.08] p-3 ${collapsed ? 'lg:p-3.5' : ''}`}>
-          <a
-            href="https://photos4realestate.ca/book-online/"
-            target="_blank"
-            rel="noreferrer"
-            className={`flex items-center justify-center gap-2 rounded-full bg-brick-500 px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-brick-600 ${
-              collapsed ? 'lg:px-2.5' : ''
-            }`}
-            title="Book Online"
-          >
-            <span className={collapsed ? 'lg:hidden' : ''}>+ Book Online</span>
-            {collapsed && (
-              <span className="hidden text-[13.5px] font-semibold lg:inline">
-                +
-              </span>
-            )}
-          </a>
+          <CreateListingButton
+            canManage={canManageListings}
+            label="+ Create Listing"
+            compact={collapsed}
+            className="w-full"
+          />
         </div>
 
         {/* Footer user */}
@@ -348,6 +459,12 @@ export function PortalShell({
             </DropdownMenu>
           </div>
         </header>
+
+        {activeIsAssistant && activeWorkspaceLabel ? (
+          <div className="sticky top-[68px] z-20 border-b border-yellow-300 bg-yellow-100 px-4 py-2 text-[13px] font-medium text-yellow-900 dark:border-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-100 sm:px-6">
+            You are in {activeWorkspaceLabel}'s workspace.
+          </div>
+        ) : null}
 
         <main className="mx-auto w-full max-w-[1600px] px-4 pb-16 pt-5 sm:px-6">
           {children}

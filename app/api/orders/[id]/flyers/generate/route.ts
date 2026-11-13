@@ -1,23 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
-import { auth } from '@/lib/auth/auth';
+import {
+  requireListingPermission,
+  hasPermission,
+  WorkspaceAccessError,
+} from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import { isS3Available } from '@/lib/utils/s3';
 
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!isS3Available()) return NextResponse.json({ error: 'S3 not configured' }, { status: 503 });
 
     const { id } = await params;
-    const user = session.user as any;
-    const realtorId = user?.realtorId as string | undefined;
+    const ctx = await requireListingPermission(id, 'GENERATE_MARKETING');
+    if (!hasPermission(ctx, 'GENERATE_MARKETING')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
+    }
 
-    // Permission: admin/superadmin or owning realtor
-    const order = await prisma.order.findUnique({
+    const order = await prisma.listing.findUnique({
       where: { id },
       include: {
         realtor: {
@@ -34,10 +37,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     });
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    if (!isAdmin) {
-      if (!realtorId || order.realtorId !== realtorId) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
 
     // Validate sources 3..6 (reuse reel sources)
     const sources = await prisma.orderReelSourceImage.findMany({ where: { orderId: id }, orderBy: { sortOrder: 'asc' } });
@@ -75,6 +74,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     return NextResponse.json({ ok: true, created: created.map((c) => c.id) });
   } catch (e) {
+    if (e instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error(e);
     return NextResponse.json({ error: 'Failed to generate flyers' }, { status: 500 });
   }

@@ -1,6 +1,9 @@
 import crypto from "crypto";
 import { Resend } from "resend";
 
+const BRAND = process.env.BRAND_NAME ?? "GoList.me";
+const FROM = process.env.RESEND_FROM || `${BRAND} <onboarding@resend.dev>`;
+
 export function generateInviteToken(daysValid = 7): { token: string; tokenHash: string; expiresAt: Date } {
   const token = crypto.randomBytes(32).toString("hex");
   const tokenHash = hashToken(token);
@@ -15,40 +18,38 @@ export function hashToken(token: string): string {
 export type InviteEmailPayload = {
   email: string;
   acceptUrl: string;
-  realtorName?: string;
+  workspaceName?: string;
 };
 
 export async function sendInvitationEmail(payload: InviteEmailPayload) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || "Photos 4 Real Estate <onboarding@resend.dev>";
 
   if (!apiKey) {
     console.warn("[INVITE EMAIL] RESEND_API_KEY not set; logging invite instead.");
-    console.log("[INVITE EMAIL]", payload);
+    console.log("[INVITE EMAIL]", { to: payload.email, acceptUrl: payload.acceptUrl });
     return { ok: false, skipped: true };
   }
 
   try {
     const resend = new Resend(apiKey);
-    const subject = "You’re invited to the Photos 4 Real Estate Portal";
-    const realtor = payload.realtorName ? ` for ${payload.realtorName}` : "";
+    const subject = `You're invited to ${payload.workspaceName ?? BRAND}`;
     const html = `
       <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height:1.5;">
-        <h2>You're invited${realtor}</h2>
-        <p>You've been invited to join the Photos 4 Real Estate client portal.</p>
+        <h2>You're invited to ${payload.workspaceName ?? BRAND}</h2>
+        <p>You've been invited to join a workspace on ${BRAND}.</p>
         <p>Click the button below to set your password and activate your account:</p>
         <p>
           <a href="${payload.acceptUrl}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;border-radius:6px;text-decoration:none">
-            Accept Invitation
+            Accept invitation
           </a>
         </p>
-        <p>If the button doesn’t work, copy and paste this URL into your browser:</p>
+        <p>If the button doesn't work, copy and paste this URL into your browser:</p>
         <p><a href="${payload.acceptUrl}">${payload.acceptUrl}</a></p>
         <p style="color:#666;font-size:12px">This link will expire in 7 days.</p>
       </div>`;
 
     const { data, error } = await resend.emails.send({
-      from,
+      from: FROM,
       to: payload.email,
       subject,
       html,
@@ -59,11 +60,10 @@ export async function sendInvitationEmail(payload: InviteEmailPayload) {
       return { ok: false, error: String(error) };
     }
 
-    console.log("[INVITE EMAIL] sent", { to: payload.email, id: data?.id, acceptUrl: payload.acceptUrl });
+    console.log("[INVITE EMAIL] sent", { to: payload.email, id: data?.id });
     return { ok: true, id: data?.id };
   } catch (err) {
     console.error("[INVITE EMAIL] Resend send failed", err);
     return { ok: false, error: (err as Error).message };
   }
 }
-

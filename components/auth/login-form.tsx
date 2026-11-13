@@ -1,9 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useForm as useForm2 } from 'react-hook-form';
-import * as z2 from 'zod';
-
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -36,7 +33,11 @@ const formSchema = z.object({
 
 import MagicLinkLogin from './MagicLinkLogin';
 
-export function LoginForm() {
+export function LoginForm({
+  callbackUrl = '/portal?loginSuccess=1',
+}: {
+  callbackUrl?: string;
+}) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -53,13 +54,27 @@ export function LoginForm() {
 
     try {
       const recaptchaToken = await getRecaptchaToken('login');
-      await signIn('credentials', {
+      const result = await signIn('credentials', {
         email: values.email,
         password: values.password,
         recaptchaToken: recaptchaToken || undefined,
-        redirect: true,
-        callbackUrl: '/portal?loginSuccess=1', // Admins will be redirected to /admin/dashboard by the portal page (param propagated)
+        redirect: false,
+        callbackUrl,
       });
+
+      if (result?.error) {
+        const code = (result as { code?: string }).code;
+        const url = result?.url || '';
+        if (code === 'account_suspended' || url.includes('code=account_suspended')) {
+          router.push(`/account-suspended?email=${encodeURIComponent(values.email)}`);
+          return;
+        }
+        toast.error('Invalid email or password.');
+        return;
+      }
+
+      router.push(result?.url || callbackUrl);
+      router.refresh();
     } catch (error) {
       toast.error('An error occurred. Please try again.');
     } finally {
@@ -72,7 +87,7 @@ export function LoginForm() {
       <CardHeader>
         <CardTitle>Login</CardTitle>
         <CardDescription>
-          Enter your credentials to access the admin panel
+          Sign in to your GoList.me workspace
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -87,7 +102,11 @@ export function LoginForm() {
                   <FormControl>
                     <Input
                       type="email"
-                      placeholder="admin@example.com"
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       {...field}
                       disabled={isLoading}
                     />
@@ -106,6 +125,7 @@ export function LoginForm() {
                     <Input
                       type="password"
                       placeholder="••••••••"
+                      autoComplete="current-password"
                       {...field}
                       disabled={isLoading}
                     />
@@ -128,7 +148,7 @@ export function LoginForm() {
         </div>
 
         {/* Magic Link section */}
-        <MagicLinkLogin />
+        <MagicLinkLogin callbackUrl={callbackUrl} />
 
         <div className="mt-4 text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{' '}

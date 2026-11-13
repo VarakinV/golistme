@@ -109,8 +109,8 @@ export default async function QRCodeGatePage({
                 headshot: currentAssignment.order.realtor.headshot || null,
                 companyName: currentAssignment.order.realtor.companyName || null,
                 companyLogo: currentAssignment.order.realtor.companyLogo || null,
-                firstName: currentAssignment.order.realtor.firstName,
-                lastName: currentAssignment.order.realtor.lastName,
+                firstName: currentAssignment.order.realtor.firstName || '',
+                lastName: currentAssignment.order.realtor.lastName || '',
               },
             }
           : null

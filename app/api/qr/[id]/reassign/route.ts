@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { auth } from '@/lib/auth/auth';
+import { getAuthContext, hasPermission, isPlatformAdmin, WorkspaceAccessError } from '@/lib/auth/workspace';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -13,15 +13,18 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const ctx = await getAuthContext();
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!hasPermission(ctx, 'MANAGE_LISTINGS')) {
+      return NextResponse.json({ error: 'Missing permission' }, { status: 403 });
     }
 
     const { id } = await params;
-    const user = session.user as any;
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-    const realtorId = user?.realtorId as string | undefined;
+    const isAdmin = isPlatformAdmin(ctx);
+    const realtorId = ctx.workspaceId;
+    const currentUserId = ctx.userId;
 
     const qrCode = await prisma.qRCode.findUnique({
       where: { id },
@@ -38,15 +41,21 @@ export async function PATCH(
 
     if (!isAdmin) {
       const currentAssignment = qrCode.assignments[0];
-      if (!currentAssignment) {
-        return NextResponse.json({ error: 'QR code not found' }, { status: 404 });
-      }
+      const isCreator = qrCode.createdByUserId === currentUserId;
 
-      const currentOrder = await prisma.order.findUnique({
-        where: { id: currentAssignment.orderId },
-      });
+      if (currentAssignment) {
+        const currentOrder = await prisma.listing.findUnique({
+          where: { id: currentAssignment.orderId },
+        });
 
-      if (!currentOrder || currentOrder.realtorId !== realtorId) {
+        if (!currentOrder || currentOrder.realtorId !== realtorId) {
+          if (!isCreator) {
+            return NextResponse.json({ error: 'QR code not found' }, { status: 404 });
+          }
+        }
+      } else if (!isCreator) {
+        // The QR code is unassigned (for example, its previous listing was
+        // deleted). Only the account that created it may assign it again.
         return NextResponse.json({ error: 'QR code not found' }, { status: 404 });
       }
     }
@@ -58,7 +67,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid fields' }, { status: 400 });
     }
 
-    const newOrder = await prisma.order.findUnique({
+    const newOrder = await prisma.listing.findUnique({
       where: { id: parsed.data.orderId },
       include: {
         propertyPages: {
@@ -75,9 +84,6 @@ export async function PATCH(
     if (!isAdmin) {
       if (newOrder.realtorId !== realtorId) {
         return NextResponse.json({ error: 'Cannot reassign to another realtor\'s order' }, { status: 403 });
-      }
-      if (newOrder.status === 'ARCHIVED') {
-        return NextResponse.json({ error: 'Cannot reassign to archived order' }, { status: 400 });
       }
     }
 

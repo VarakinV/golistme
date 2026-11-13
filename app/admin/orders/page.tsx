@@ -28,10 +28,11 @@ interface RealtorOption {
 
 interface OrderRow {
   id: string;
+  slug: string;
   propertyAddress: string;
-  realtor: { id: string; firstName: string; lastName: string };
+  realtor: { id: string; firstName: string; lastName: string; name?: string | null };
   mlsNumber?: string | null;
-  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  status: 'DRAFT' | 'ACTIVE' | 'SOLD';
   createdAt: string;
 }
 
@@ -251,8 +252,8 @@ export default function OrdersPage() {
                   <SelectContent>
                     <SelectItem value="ALL">All</SelectItem>
                     <SelectItem value="DRAFT">Draft</SelectItem>
-                    <SelectItem value="PUBLISHED">Published</SelectItem>
-                    <SelectItem value="ARCHIVED">Archived</SelectItem>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="SOLD">Sold</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -311,19 +312,18 @@ export default function OrdersPage() {
                       {o.propertyAddress}
                     </td>
                     <td data-label="Realtor">
-                      {o.realtor.firstName} {o.realtor.lastName}
+                      {[o.realtor.firstName, o.realtor.lastName].filter(Boolean).join(' ') || o.realtor.name}
                     </td>
                     <td data-label="MLS #">{o.mlsNumber || '—'}</td>
                     <td data-label="Status">
                       <div className="flex items-center gap-2">
                         <Switch
                           size="sm"
-                          checked={o.status === 'PUBLISHED'}
-                          disabled={o.status === 'ARCHIVED'}
-                          srLabel="Toggle Published"
+                          checked={o.status === 'ACTIVE'}
+                          srLabel="Toggle Active"
                           onCheckedChange={async (checked) => {
                             const prev = o.status;
-                            const newStatus = checked ? 'PUBLISHED' : 'DRAFT';
+                            const newStatus = checked ? 'ACTIVE' : 'DRAFT';
                             setOrders((list) =>
                               list.map((x) =>
                                 x.id === o.id
@@ -353,8 +353,8 @@ export default function OrdersPage() {
                     </td>
                     <td data-label="Actions">
                       <div className="flex items-center justify-start gap-1.5 md:justify-end">
-                        {o.status === 'PUBLISHED' && (
-                          <CopyDeliveryLinkIcon orderId={o.id} />
+                        {(o.status === 'ACTIVE' || o.status === 'SOLD') && (
+                          <CopyDeliveryLinkIcon slug={o.slug} />
                         )}
                         <StatusPill status={o.status} className="hidden xl:inline-flex" />
                         <Link

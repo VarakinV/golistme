@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { loadGoogleMaps, importGoogleMapsLibrary } from '@/lib/google-maps/loader';
 
 declare global {
   interface Window {
     google?: any;
-    __googleMapsPlacesPromise?: Promise<void>;
   }
 }
 
@@ -21,7 +21,7 @@ export default function PlacesAddressInput({
   defaultCountry,
   defaultPlaceId,
   placeholder = 'Search address',
-  className = 'border rounded-md w-full p-2',
+  className = 'field',
   onValueChange,
   onResolved,
 }: {
@@ -50,7 +50,8 @@ export default function PlacesAddressInput({
     placeId?: string;
   }) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const streetRef = useRef<HTMLInputElement | null>(null);
   const formattedRef = useRef<HTMLInputElement | null>(null);
   const latRef = useRef<HTMLInputElement | null>(null);
   const lngRef = useRef<HTMLInputElement | null>(null);
@@ -59,145 +60,154 @@ export default function PlacesAddressInput({
   const postalRef = useRef<HTMLInputElement | null>(null);
   const countryRef = useRef<HTMLInputElement | null>(null);
   const placeIdRef = useRef<HTMLInputElement | null>(null);
+  const [autocompleteReady, setAutocompleteReady] = useState(false);
 
   useEffect(() => {
-    const key =
-      process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
-      process.env.GOOGLE_MAPS_API_KEY;
-    if (!key) return; // no key, render plain input
+    let cancelled = false;
+    let element: any = null;
+    let handleSelect: ((event: any) => void) | null = null;
+    let form: HTMLFormElement | null = null;
+    let handleSubmit: (() => void) | null = null;
 
-    const ensurePlaces = async () => {
-      if (window.google?.maps?.places) return Promise.resolve();
-      if (window.google?.maps?.importLibrary) {
-        try {
-          await window.google.maps.importLibrary('places');
+    async function init() {
+      try {
+        const maps = await loadGoogleMaps();
+        if (!maps || cancelled || !containerRef.current) return;
+
+        const { PlaceAutocompleteElement } =
+          await importGoogleMapsLibrary('places');
+        if (!PlaceAutocompleteElement || cancelled || !containerRef.current)
           return;
-        } catch {
-          // Fall through to script loading below.
+
+        const autocomplete = new PlaceAutocompleteElement();
+        autocomplete.placeholder = placeholder;
+        autocomplete.style.width = '100%';
+        autocomplete.style.display = 'block';
+        autocomplete.style.setProperty('background-color', 'var(--card)');
+        autocomplete.style.setProperty('border', '1px solid var(--border)');
+        autocomplete.style.setProperty('border-radius', '0.625rem');
+        autocomplete.style.setProperty('color-scheme', 'light dark');
+        autocomplete.style.fontFamily = 'inherit';
+        autocomplete.style.fontSize = '0.875rem';
+        autocomplete.style.color = 'var(--foreground)';
+
+        handleSelect = async (event: any) => {
+          const place = event?.placePrediction?.toPlace?.();
+          if (!place) return;
+
+          await place.fetchFields({
+            fields: [
+              'formattedAddress',
+              'location',
+              'addressComponents',
+              'id',
+              'displayName',
+            ],
+          });
+
+          const display =
+            typeof place.displayName === 'string'
+              ? place.displayName
+              : place.displayName?.text || '';
+          const formatted = place.formattedAddress || display;
+          const lat = place.location?.lat?.() ?? null;
+          const lng = place.location?.lng?.() ?? null;
+          const components = place.addressComponents || [];
+          const get = (type: string) =>
+            components.find((component: any) => component.types?.includes(type))
+              ?.longText || '';
+          const city = get('locality') || get('postal_town') || '';
+          const province = get('administrative_area_level_1') || '';
+          const postalCode = get('postal_code') || '';
+          const country = get('country') || '';
+          const placeId = place.id || '';
+          const streetNumber = get('street_number');
+          const route = get('route');
+          const street =
+            [streetNumber, route].filter(Boolean).join(' ').trim() ||
+            formatted.split(',')[0]?.trim() ||
+            '';
+
+          autocomplete.value = street || formatted || '';
+          if (streetRef.current) streetRef.current.value = street || formatted || '';
+          onValueChange?.(street || formatted || '');
+          if (formattedRef.current) formattedRef.current.value = formatted || '';
+          if (latRef.current) latRef.current.value = lat != null ? String(lat) : '';
+          if (lngRef.current) lngRef.current.value = lng != null ? String(lng) : '';
+          if (cityRef.current) cityRef.current.value = city;
+          if (provinceRef.current) provinceRef.current.value = province;
+          if (postalRef.current) postalRef.current.value = postalCode;
+          if (countryRef.current) countryRef.current.value = country;
+          if (placeIdRef.current) placeIdRef.current.value = placeId;
+          onResolved?.({
+            formatted,
+            street,
+            lat,
+            lng,
+            city,
+            province,
+            postalCode,
+            country,
+            placeId,
+          });
+        };
+
+        autocomplete.addEventListener('gmp-select', handleSelect);
+        containerRef.current.innerHTML = '';
+        containerRef.current.appendChild(autocomplete);
+        if (defaultValue) autocomplete.value = defaultValue;
+
+        form = autocomplete.closest('form');
+        if (form) {
+          handleSubmit = () => {
+            if (streetRef.current && autocomplete.value) {
+              streetRef.current.value = autocomplete.value;
+            }
+          };
+          form.addEventListener('submit', handleSubmit, true);
         }
-      }
-      if (!window.__googleMapsPlacesPromise) {
-        window.__googleMapsPlacesPromise = new Promise<void>((resolve) => {
-          const existingPlaces = document.querySelector(
-            'script[data-google-maps-places="true"],script[src*="libraries=places"]'
-          ) as HTMLScriptElement | null;
-          if (existingPlaces) {
-            existingPlaces.addEventListener('load', () => resolve(), { once: true });
-            existingPlaces.addEventListener('error', () => resolve(), { once: true });
-            return;
-          }
 
-          const existing = document.querySelector(
-            'script[data-google-maps="true"],script#google-maps-js,script[src*="maps.googleapis.com/maps/api/js"]'
-          ) as HTMLScriptElement | null;
-          if (existing) {
-            if (window.google?.maps?.places) {
-              resolve();
-              return;
-            }
-            existing.addEventListener('load', async () => {
-              if (window.google?.maps?.importLibrary && !window.google?.maps?.places) {
-                try {
-                  await window.google.maps.importLibrary('places');
-                } catch {}
-              }
-              resolve();
-            }, { once: true });
-            existing.addEventListener('error', () => resolve(), { once: true });
-            if (window.google?.maps && !window.google?.maps?.places) {
-              const el = document.createElement('script');
-              el.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-              el.async = true;
-              el.defer = true;
-              el.setAttribute('data-google-maps-places', 'true');
-              el.onload = () => resolve();
-              el.onerror = () => resolve();
-              document.head.appendChild(el);
-            }
-            return;
-          }
-          const el = document.createElement('script');
-          el.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-          el.async = true;
-          el.defer = true;
-          el.setAttribute('data-google-maps', 'true');
-          el.setAttribute('data-google-maps-places', 'true');
-          el.onload = () => resolve();
-          el.onerror = () => resolve();
-          document.head.appendChild(el);
-        });
+        element = autocomplete;
+        setAutocompleteReady(true);
+      } catch (error) {
+        console.error("Google Places Autocomplete failed to load", error);
       }
-      return window.__googleMapsPlacesPromise!;
+    }
+
+    void init();
+
+    return () => {
+      cancelled = true;
+      if (form && handleSubmit) form.removeEventListener('submit', handleSubmit, true);
+      if (element && handleSelect) element.removeEventListener('gmp-select', handleSelect);
+      if (containerRef.current) containerRef.current.innerHTML = '';
     };
-
-    ensurePlaces().then(() => init());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function init() {
-    if (!inputRef.current || !window.google?.maps?.places) return;
-    const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
-      fields: [
-        'formatted_address',
-        'geometry',
-        'place_id',
-        'address_components',
-      ],
-    });
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      const formatted = place.formatted_address || inputRef.current!.value;
-      const lat = place.geometry?.location?.lat?.() ?? null;
-      const lng = place.geometry?.location?.lng?.() ?? null;
-      const comps = place.address_components || [];
-      const get = (type: string) =>
-        comps.find((c: any) => c.types?.includes(type))?.long_name || '';
-      const city = get('locality') || get('postal_town') || '';
-      const province = get('administrative_area_level_1') || '';
-      const postalCode = get('postal_code') || '';
-      const country = get('country') || '';
-      const placeId = place.place_id || '';
-      const streetNumber = get('street_number');
-      const route = get('route');
-      const street =
-        [streetNumber, route].filter(Boolean).join(' ').trim() ||
-        formatted.split(',')[0]?.trim() ||
-        '';
-      // Show street in the visible input so forms submit street-only
-      if (inputRef.current) inputRef.current.value = street || formatted || '';
-      onValueChange?.(street || formatted || '');
-      if (formattedRef.current) formattedRef.current.value = formatted || '';
-      if (latRef.current) latRef.current.value = lat != null ? String(lat) : '';
-      if (lngRef.current) lngRef.current.value = lng != null ? String(lng) : '';
-      if (cityRef.current) cityRef.current.value = city;
-      if (provinceRef.current) provinceRef.current.value = province;
-      if (postalRef.current) postalRef.current.value = postalCode;
-      if (countryRef.current) countryRef.current.value = country;
-      if (placeIdRef.current) placeIdRef.current.value = placeId;
-      onResolved?.({
-        formatted,
-        street,
-        lat,
-        lng,
-        city,
-        province,
-        postalCode,
-        country,
-        placeId,
-      });
-    });
-  }
 
   return (
     <div>
       <input
+        type="hidden"
         name={name}
+        ref={streetRef}
         defaultValue={defaultValue}
-        ref={inputRef}
-        placeholder={placeholder}
-        className={className}
-        onChange={(event) => onValueChange?.(event.target.value)}
       />
-      {/* Hidden fields for formatted + coordinates + components */}
+
+      {!autocompleteReady && (
+        <input
+          defaultValue={defaultValue}
+          placeholder={placeholder}
+          className={className}
+          onChange={(event) => {
+            if (streetRef.current) streetRef.current.value = event.target.value;
+            onValueChange?.(event.target.value);
+          }}
+        />
+      )}
+
+      <div ref={containerRef} className={autocompleteReady ? 'w-full' : 'hidden'} />
+
       <input
         type="hidden"
         name="propertyFormattedAddress"

@@ -3,9 +3,19 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { QrCode, Plus, TrendingUp, FileText, Image, CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { DeleteIconButton } from '@/components/admin/ui/icon-action';
+import {
+  QrCode,
+  Plus,
+  TrendingUp,
+  FileText,
+  Image as ImageIcon,
+  CheckCircle,
+  XCircle,
+  Loader2,
+} from 'lucide-react';
+import { QrDeleteButton } from '@/components/qr/QrDeleteButton';
 import { QRCodeStatsDialog } from '@/components/qr/QRCodeStatsDialog';
+import { requestPermission, showErrorDialog } from '@/lib/ui/feedback';
 
 interface QRCode {
   id: string;
@@ -31,17 +41,23 @@ interface QRCode {
 
 interface OrderQRCodesProps {
   orderId: string;
+  canManage?: boolean;
+  canViewStats?: boolean;
 }
 
-export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
+export function OrderQRCodes({
+  orderId,
+  canManage = true,
+  canViewStats = true,
+}: OrderQRCodesProps) {
   const [qrCodes, setQrCodes] = useState<QRCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedQR, setSelectedQR] = useState<QRCode | null>(null);
   const [showStats, setShowStats] = useState(false);
 
-  async function loadQRCodes() {
-    setLoading(true);
+  async function loadQRCodes(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch('/api/qr/list');
       if (res.ok) {
@@ -54,7 +70,7 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -63,6 +79,10 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
   }, [orderId]);
 
   async function handleGenerate() {
+    if (!canManage) {
+      requestPermission('generate or delete QR codes');
+      return;
+    }
     setGenerating(true);
     try {
       const res = await fetch('/api/qr', {
@@ -73,46 +93,53 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
 
       if (res.ok) {
         const qrCode = await res.json();
-        toast.success(`QR code ${qrCode.displayId} created`);
 
         const printRes = await fetch(`/api/qr/${qrCode.id}/printables`, {
           method: 'POST',
         });
 
-        if (printRes.ok) {
-          toast.success('Print artifacts generation started');
-        }
+        await loadQRCodes(true);
 
-        loadQRCodes();
+        if (printRes.ok) {
+          const printData = await printRes.json().catch(() => ({}));
+          const hasFailure = Array.isArray(printData.printables)
+            ? printData.printables.some(
+                (printable: { status?: string }) => printable.status === 'FAILED'
+              )
+            : false;
+          if (hasFailure) {
+            showErrorDialog(
+              `QR code ${qrCode.displayId} was created, but some print files failed. Try generating the QR code again.`,
+              'Some print files failed'
+            );
+          } else {
+            toast.success(`QR code ${qrCode.displayId} and print files are ready`);
+          }
+        } else {
+          const data = await printRes.json().catch(() => ({}));
+          showErrorDialog(
+            data.error ||
+              `QR code ${qrCode.displayId} was created, but its print files could not be generated. Try again.`,
+            'Print files not ready'
+          );
+        }
       } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to create QR code');
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 403) requestPermission('generate or delete QR codes');
+        else
+          showErrorDialog(
+            data.error || 'The QR code could not be created.',
+            'Could not create QR code'
+          );
       }
     } catch (e) {
       console.error(e);
-      toast.error('Failed to create QR code');
+      showErrorDialog(
+        'The QR code could not be created. Please try again.',
+        'Could not create QR code'
+      );
     } finally {
       setGenerating(false);
-    }
-  }
-
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this QR code?')) {
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/qr/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        toast.success('QR code deleted');
-        loadQRCodes();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to delete QR code');
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error('Failed to delete QR code');
     }
   }
 
@@ -138,7 +165,7 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
             Generate QR codes that link to the property lead capture page
           </p>
         </div>
-        <Button onClick={handleGenerate} disabled={generating}>
+        <Button onClick={handleGenerate} disabled={canManage && generating}>
           {generating ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
@@ -153,11 +180,19 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
         </Button>
       </div>
 
+      {generating && <QrCardSkeleton />}
+
       {qrCodes.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <QrCode className="h-12 w-12 mx-auto mb-3 text-faint" />
-          <p>No QR codes yet. Generate one to get started.</p>
-        </div>
+        generating ? null : (
+          <div className="text-center py-12 text-muted-foreground">
+            <QrCode className="h-12 w-12 mx-auto mb-3 text-faint" />
+            <p>
+              {canManage
+                ? 'No QR codes yet. Generate one to get started.'
+                : 'You do not have permission to create QR codes.'}
+            </p>
+          </div>
+        )
       ) : (
         <div className="space-y-3">
           {qrCodes.map((qr) => (
@@ -246,30 +281,38 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
                               </div>
 
                               {p.status === 'COMPLETE' && (
-                                <div className="flex gap-2 mt-2">
+                                <div className="flex gap-2 mt-3">
                                   {p.pngUrl && (
-                                    <a
-                                      href={p.pngUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs text-foreground hover:bg-surface-2 transition-colors"
-                                      title="Download PNG"
+                                    <Button
+                                      asChild
+                                      size="sm"
+                                      className="h-9 flex-1 px-4 text-[12.5px]"
                                     >
-                                      <Image className="h-3 w-3" />
-                                      <span>PNG</span>
-                                    </a>
+                                      <a
+                                        href={`/api/qr/${qr.id}/printables/${p.id}/download?format=png`}
+                                        download
+                                        title="Download PNG"
+                                      >
+                                        <ImageIcon className="h-4 w-4" />
+                                        <span>PNG</span>
+                                      </a>
+                                    </Button>
                                   )}
                                   {p.pdfUrl && (
-                                    <a
-                                      href={p.pdfUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs text-foreground hover:bg-surface-2 transition-colors"
-                                      title="Download PDF"
+                                    <Button
+                                      asChild
+                                      size="sm"
+                                      className="h-9 flex-1 px-4 text-[12.5px]"
                                     >
-                                      <FileText className="h-3 w-3" />
-                                      <span>PDF</span>
-                                    </a>
+                                      <a
+                                        href={`/api/qr/${qr.id}/printables/${p.id}/download?format=pdf`}
+                                        download
+                                        title="Download PDF"
+                                      >
+                                        <FileText className="h-4 w-4" />
+                                        <span>PDF</span>
+                                      </a>
+                                    </Button>
                                   )}
                                 </div>
                               )}
@@ -285,14 +328,20 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleShowStats(qr)}
+                    onClick={() =>
+                      canViewStats
+                        ? handleShowStats(qr)
+                        : requestPermission('view QR statistics')
+                    }
                     title="Show Stats"
                   >
                     <TrendingUp className="h-4 w-4" />
                   </Button>
-                  <DeleteIconButton
-                    label="Delete"
-                    onClick={() => handleDelete(qr.id)}
+                  <QrDeleteButton
+                    qrCodeId={qr.id}
+                    label={qr.displayId}
+                    canDelete={canManage}
+                    onDeleted={loadQRCodes}
                   />
                 </div>
               </div>
@@ -311,6 +360,33 @@ export function OrderQRCodes({ orderId }: OrderQRCodesProps) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function QrCardSkeleton() {
+  return (
+    <div className="animate-pulse rounded-lg border p-4">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="h-6 w-24 rounded bg-muted" />
+          <div className="mt-3 h-4 w-32 rounded bg-muted" />
+          <div className="mt-2 h-3 w-24 rounded bg-muted" />
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="rounded-lg border bg-surface-2 p-3">
+                <div className="mx-auto h-20 w-20 rounded bg-muted" />
+                <div className="mt-3 h-4 w-24 rounded bg-muted" />
+                <div className="mt-2 h-3 w-16 rounded bg-muted" />
+                <div className="mt-3 flex gap-2">
+                  <div className="h-9 flex-1 rounded-full bg-muted" />
+                  <div className="h-9 flex-1 rounded-full bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

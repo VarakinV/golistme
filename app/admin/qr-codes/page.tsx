@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { QRCodeStatsDialog } from '@/components/qr/QRCodeStatsDialog';
 import { QRCodeReassignDialog } from '@/components/qr/QRCodeReassignDialog';
 import { Loader2, Plus, TrendingUp, Edit, ChevronDown, X } from 'lucide-react';
-import { DeleteIconButton } from '@/components/admin/ui/icon-action';
+import { QrDeleteButton } from '@/components/qr/QrDeleteButton';
 
 interface RealtorOption {
   id: string;
@@ -248,26 +248,6 @@ export default function AdminQRCodesPage() {
     setShowReassign(true);
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this QR code?')) {
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/qr/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        toast.success('QR code deleted');
-        setQrCodes((list) => list.filter((x) => x.id !== id));
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to delete QR code');
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error('Failed to delete QR code');
-    }
-  }
-
   async function handleToggleWeeklyStats(assignmentId: string, enabled: boolean) {
     try {
       const res = await fetch(`/api/qr/${assignmentId}/send-stats`, {
@@ -297,7 +277,7 @@ export default function AdminQRCodesPage() {
 
   return (
     <div className="min-h-screen bg-surface-2">
-      <Toaster position="bottom-right" />
+      <Toaster richColors position="bottom-right" />
 
       <div className="mb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -423,9 +403,12 @@ export default function AdminQRCodesPage() {
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <DeleteIconButton
-                              onClick={() => handleDelete(qr.id)}
-                              label="Delete"
+                            <QrDeleteButton
+                              qrCodeId={qr.id}
+                              label={qr.displayId}
+                              onDeleted={() =>
+                                setQrCodes((list) => list.filter((x) => x.id !== qr.id))
+                              }
                             />
                           </div>
                         </TableCell>

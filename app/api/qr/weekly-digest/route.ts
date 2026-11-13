@@ -4,7 +4,7 @@ import { Resend } from 'resend';
 
 async function sendEmail({ to, subject, html }: { to: string; subject: string; html: string }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'Photos 4 Real Estate <onboarding@resend.dev>';
+  const from = process.env.RESEND_FROM || 'GoList.me <onboarding@resend.dev>';
   if (!apiKey) {
     console.warn('[QR WEEKLY DIGEST] RESEND_API_KEY not set; logging instead.');
     console.log('[QR WEEKLY DIGEST EMAIL]', { to, subject });
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
       let html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #ca4153;">Weekly QR Code Stats</h2>
-          <p>Hi ${escapeHtml(realtor.firstName)},</p>
+          <p>Hi ${escapeHtml(realtor.firstName ?? 'there')},</p>
           <p>Here's your QR code activity for the past 7 days:</p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
       `;

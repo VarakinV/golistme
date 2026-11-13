@@ -1,10 +1,9 @@
-import { auth } from '@/lib/auth/auth';
+import { getAuthContext } from '@/lib/auth/workspace';
 import { prisma } from '@/lib/db/prisma';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from 'lucide-react';
-import PointsCard from '@/components/portal/PointsCard';
 import { OrdersSearchInput } from '@/components/portal/orders-search';
 import { PageHead } from '@/components/admin/ui/page-head';
 import { StatusPill } from '@/components/admin/ui/status-pill';
@@ -15,10 +14,9 @@ export default async function PortalHomePage({
 }: {
   searchParams: Promise<{ page?: string; q?: string; loginSuccess?: string }>;
 }) {
-  const session = await auth();
-  const user = session?.user as any;
+  const ctx = await getAuthContext();
 
-  if (!user) {
+  if (!ctx) {
     return (
       <div className="p-6">
         <p>
@@ -35,18 +33,22 @@ export default async function PortalHomePage({
   const sp = await searchParams;
   const loginSuccess = sp?.loginSuccess;
 
-  const isAdmin = user.role === 'ADMIN' || user.role === 'SUPERADMIN';
+  const isAdmin = ctx.platformRole === 'ADMIN' || ctx.platformRole === 'SUPERADMIN';
   if (isAdmin) {
-    // Admins land on the dashboard instead of the portal home
     const suffix = loginSuccess ? `?loginSuccess=1` : '';
     redirect(`/admin/dashboard${suffix}`);
+  }
+
+  const workspaceId = ctx.workspaceId;
+  if (!workspaceId) {
+    redirect('/no-workspace');
   }
 
   const { q: qParam } = sp;
   const q = (qParam || '').trim();
   const recentLimit = 5;
 
-  const baseWhere = isAdmin ? {} : { realtorId: user.realtorId || '__none__' };
+  const baseWhere = { realtorId: workspaceId };
   const where = q
     ? {
         AND: [
@@ -56,75 +58,71 @@ export default async function PortalHomePage({
       }
     : baseWhere;
 
-  const orders = await prisma.order.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take: recentLimit,
-    select: { id: true, slug: true, propertyAddress: true, status: true },
-  });
+  const [listings, workspace] = await Promise.all([
+    prisma.listing.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: recentLimit,
+      select: { id: true, slug: true, propertyAddress: true, status: true },
+    }),
+    prisma.realtorWorkspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true, creditBalance: { select: { balance: true } } },
+    }),
+  ]);
 
-  // Fetch points for client (only if user is linked to a Realtor)
-  let points = 0;
-  if (user.realtorId) {
-    const realtor = await prisma.realtor.findUnique({
-      where: { id: user.realtorId },
-      select: { points: true },
-    });
-    points = realtor?.points ?? 0;
-  }
+  const credits = workspace?.creditBalance?.balance ?? 0;
 
   return (
     <div className="w-full space-y-6">
       <LoginSuccessToaster />
 
       <PageHead
-        title="Customer Portal"
-        subtitle="Access your recent orders and tools"
+        title={workspace?.name ?? 'Customer Portal'}
+        subtitle="Manage your listings and marketing assets"
         actions={
           <Button asChild className="gap-2">
-            <Link href="https://photos4realestate.ca/book-online/" target="_blank">
-              + Book Online
-            </Link>
+            <Link href="/portal/orders/new">+ Create Listing</Link>
           </Button>
         }
       />
 
       <div className="space-y-6">
-        {/* Your Points card */}
-        {user.realtorId && <PointsCard points={points} />}
+        <div className="rounded-2xl border border-border bg-card p-4.5 sm:p-6">
+          <h2 className="font-display text-[16px] font-semibold">Credits</h2>
+          <p className="mt-1 text-3xl font-semibold">{credits}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Credits are used for video re-renders and premium assets.
+          </p>
+        </div>
 
-        {/* Recent Orders card */}
         <div className="rounded-2xl border border-border bg-card p-4.5 sm:p-6">
           <div className="mb-3 flex items-center gap-3">
-            <h2 className="font-display text-[16px] font-semibold">
-              Recent Orders
-            </h2>
+            <h2 className="font-display text-[16px] font-semibold">Recent listings</h2>
             <div className="ml-auto w-full sm:w-64">
               <OrdersSearchInput initialQ={q} />
             </div>
           </div>
-          {orders.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No orders yet.</p>
+          {listings.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No listings yet.</p>
           ) : (
             <ul className="divide-y divide-border border-t border-border">
-              {orders.map((o) => (
+              {listings.map((o) => (
                 <li
                   key={o.id}
                   className="flex flex-col gap-2.5 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <div className="truncate font-medium">
-                      {o.propertyAddress}
-                    </div>
+                    <div className="truncate font-medium">{o.propertyAddress}</div>
                     <StatusPill status={o.status} className="mt-0.5" />
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <Button variant="outline" asChild size="sm">
-                      <Link href={`/portal/orders/${o.id}`}>Order Details</Link>
+                      <Link href={`/portal/orders/${o.id}`}>Edit Listing</Link>
                     </Button>
                     <Button asChild size="sm">
-                      <Link href={`/delivery/${o.id}`} target="_blank">
-                        <ExternalLink className="mr-2 h-4 w-4" /> Delivery Page
+                      <Link href={`/p/${o.slug}`} target="_blank">
+                        <ExternalLink className="mr-2 h-4 w-4" /> Public page
                       </Link>
                     </Button>
                   </div>
@@ -133,10 +131,9 @@ export default async function PortalHomePage({
             </ul>
           )}
 
-          {/* View All link */}
           <div className="mt-4 text-center">
             <Button variant="outline" asChild size="sm">
-              <Link href="/portal/orders">View All Orders</Link>
+              <Link href="/portal/orders">View all listings</Link>
             </Button>
           </div>
         </div>
